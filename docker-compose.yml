@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: relay_takehome_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: relay
+      POSTGRES_DB: relay_takehome
+    ports:
+      - "5432:5432"
+    volumes:
+      - relay_pgdata:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/1_schema.sql:ro
+      - ./seed.sql:/docker-entrypoint-initdb.d/2_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay_takehome"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  relay_pgdata:

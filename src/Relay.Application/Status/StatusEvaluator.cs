@@ -22,9 +22,17 @@ public sealed class StatusEvaluator
         ThresholdSet thresholds)
     {
         // Rung 1 · InsufficientData — never a colour, never red, outranks every other rule.
-        if (baseline.Mean is null || baseline.Mean < thresholds.MinBaselineEvents)
+        //
+        // Order matters. A null mean means zero contributing weeks — that is a history problem,
+        // not a "too small" problem, so it is folded into the history check rather than reported
+        // as BaselineBelowMinEvents. Mean == 0 is checked before the minimum-events comparison so
+        // it is reachable at all (0 < 5 would otherwise always win first) and it guards the
+        // division below regardless of tile kind. MinBaselineEvents itself is an event-count
+        // threshold and only means something for count tiles — rate tiles gate on the
+        // denominator, not the mean (Requirements §"Defining min_baseline_events").
+        if (baseline.Mean is null || baseline.WeeksContributing < thresholds.MinHistoryWeeks)
         {
-            return new StatusResult(TileStatus.InsufficientData, ReasonCode.BaselineBelowMinEvents, null, null);
+            return new StatusResult(TileStatus.InsufficientData, ReasonCode.InsufficientHistory, null, null);
         }
 
         if (baseline.Mean == 0m)
@@ -32,9 +40,9 @@ public sealed class StatusEvaluator
             return new StatusResult(TileStatus.InsufficientData, ReasonCode.BaselineZero, null, null);
         }
 
-        if (baseline.WeeksContributing < thresholds.MinHistoryWeeks)
+        if (kind == TileKind.Count && baseline.Mean < thresholds.MinBaselineEvents)
         {
-            return new StatusResult(TileStatus.InsufficientData, ReasonCode.InsufficientHistory, null, null);
+            return new StatusResult(TileStatus.InsufficientData, ReasonCode.BaselineBelowMinEvents, null, null);
         }
 
         if (kind == TileKind.Rate
@@ -44,17 +52,25 @@ public sealed class StatusEvaluator
         }
 
         // Rung 2 · PartialWeek — count tiles only; rate tiles survive an incomplete week because
-        // numerator and denominator lose the same days.
-        if (kind == TileKind.Count && viewedDaysIncluded < viewedExpectedDays)
+        // numerator and denominator lose the same days. ExpectedDays == 0 (no rows at all for the
+        // viewed week) counts as partial too — 0 < 0 would otherwise read as a complete week.
+        if (kind == TileKind.Count
+            && (viewedValue is null || viewedExpectedDays == 0 || viewedDaysIncluded < viewedExpectedDays))
         {
             return new StatusResult(TileStatus.PartialWeek, ReasonCode.ViewedWeekPartial, null, null);
         }
 
-        // Past both gates: the baseline is trustworthy and the viewed week is complete enough to
-        // compare. viewedValue is guaranteed non-null here — a count is never null, and a rate
-        // tile with a null value implies a zero denominator, already caught above.
-        var deltaPct = (viewedValue!.Value - baseline.Mean.Value) / baseline.Mean.Value * 100m;
-        decimal? deltaPp = kind == TileKind.Rate ? viewedValue.Value - baseline.Mean.Value : null;
+        // Defensive: past both gates, viewedValue should always be non-null — a count is never
+        // null (just excluded above if it somehow were), and a null rate value implies a zero
+        // denominator, already caught by the DenominatorBelowMin check above. Guard rather than
+        // let a future data-layer change surface as a bare NRE.
+        if (viewedValue is not { } value)
+        {
+            return new StatusResult(TileStatus.InsufficientData, ReasonCode.DenominatorBelowMin, null, null);
+        }
+
+        var deltaPct = (value - baseline.Mean.Value) / baseline.Mean.Value * 100m;
+        decimal? deltaPp = kind == TileKind.Rate ? value - baseline.Mean.Value : null;
 
         // Rung 5 (early exit) · neutral outcomes have no bad side and can only ever land here.
         if (polarity == OutcomePolarity.Neutral)

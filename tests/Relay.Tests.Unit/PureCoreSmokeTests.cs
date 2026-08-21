@@ -70,4 +70,98 @@ public class PureCoreSmokeTests
         Assert.Equal(TileStatus.Normal, result.Status);
         Assert.Equal(ReasonCode.NeutralPolarity, result.Reason);
     }
+
+    [Fact]
+    public void StatusEvaluator_RateTile_LowBaselineMean_IsNotGatedByMinBaselineEvents()
+    {
+        // Rate tiles gate on the denominator, not the mean (Requirements §"Defining
+        // min_baseline_events") — a 3% baseline mean must not read as BaselineBelowMinEvents.
+        var baseline = new BaselineResult(3m, 1.8m, 4.2m, 8, 8, 8, []);
+
+        var result = new StatusEvaluator().Evaluate(
+            3.1m, 100, 7, 7, baseline, OutcomePolarity.Good, TileKind.Rate, Thresholds);
+
+        Assert.NotEqual(TileStatus.InsufficientData, result.Status);
+        Assert.NotEqual(ReasonCode.BaselineBelowMinEvents, result.Reason);
+    }
+
+    [Fact]
+    public void StatusEvaluator_ZeroBaselineMean_IsBaselineZeroNotBelowMinEvents()
+    {
+        var baseline = new BaselineResult(0m, 0m, 0m, 8, 8, 8, []);
+
+        var result = new StatusEvaluator().Evaluate(
+            5m, null, 7, 7, baseline, OutcomePolarity.Good, TileKind.Count, Thresholds);
+
+        Assert.Equal(TileStatus.InsufficientData, result.Status);
+        Assert.Equal(ReasonCode.BaselineZero, result.Reason);
+    }
+
+    [Fact]
+    public void StatusEvaluator_NullMean_IsInsufficientHistoryNotBelowMinEvents()
+    {
+        var baseline = new BaselineResult(null, null, null, 8, 8, 0, []);
+
+        var result = new StatusEvaluator().Evaluate(
+            5m, null, 7, 7, baseline, OutcomePolarity.Good, TileKind.Count, Thresholds);
+
+        Assert.Equal(TileStatus.InsufficientData, result.Status);
+        Assert.Equal(ReasonCode.InsufficientHistory, result.Reason);
+    }
+
+    [Fact]
+    public void StatusEvaluator_ViewedWeekWithNoRowsAtAll_IsPartialWeek()
+    {
+        var baseline = new BaselineResult(10m, 6m, 14m, 8, 8, 8, []);
+
+        // ExpectedDays == 0 (no rows at all for the viewed week) must not read as "0 of 0 days, complete".
+        var result = new StatusEvaluator().Evaluate(
+            0m, null, 0, 0, baseline, OutcomePolarity.Good, TileKind.Count, Thresholds);
+
+        Assert.Equal(TileStatus.PartialWeek, result.Status);
+        Assert.Equal(ReasonCode.ViewedWeekPartial, result.Reason);
+    }
+
+    [Fact]
+    public void BaselineService_NullValueCandidateWeek_ExcludedRatherThanThrown()
+    {
+        var viewedWeek = WeekRange.FromIsoWeek("2026-W30");
+        var spine = viewedWeek.Preceding(2)
+            .Select(w => new WeekObservation(w.Start, null, null, 7, 7))
+            .Append(new WeekObservation(viewedWeek.Start, 5m, null, 7, 7))
+            .ToList();
+
+        var result = new BaselineService().Build(spine, viewedWeek, 2, TileKind.Count, Thresholds);
+
+        Assert.Equal(0, result.WeeksContributing);
+        Assert.Null(result.Mean);
+        Assert.All(result.Series.Where(p => !p.IsViewedWeek), p => Assert.False(p.IncludedInBaseline));
+    }
+
+    [Fact]
+    public void BaselineService_RateBand_IsNotClampedAt100()
+    {
+        // Requirements §"Percentage points, not percentages, on rate tiles": completed at an
+        // 82.3% baseline yields a bandHigh of 115% — the API reports the raw arithmetic, and
+        // clamping for display is the frontend's job.
+        var viewedWeek = WeekRange.FromIsoWeek("2026-W30");
+        var spine = viewedWeek.Preceding(1)
+            .Select(w => new WeekObservation(w.Start, 82.3m, 100, 7, 7))
+            .Append(new WeekObservation(viewedWeek.Start, 82.3m, 100, 7, 7))
+            .ToList();
+
+        var result = new BaselineService().Build(spine, viewedWeek, 1, TileKind.Rate, Thresholds);
+
+        Assert.Null(result.BandLow);
+        Assert.Null(result.BandHigh);
+
+        var result8 = new BaselineService().Build(
+            viewedWeek.Preceding(8)
+                .Select(w => new WeekObservation(w.Start, 82.3m, 100, 7, 7))
+                .Append(new WeekObservation(viewedWeek.Start, 82.3m, 100, 7, 7))
+                .ToList(),
+            viewedWeek, 8, TileKind.Rate, Thresholds);
+
+        Assert.Equal(115.22m, result8.BandHigh);
+    }
 }

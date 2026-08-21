@@ -38,9 +38,9 @@ public sealed class BaselineService
         foreach (var observation in candidates)
         {
             var (included, reason) = Classify(observation, kind, thresholds);
-            if (included)
+            if (included && observation.Value is { } value)
             {
-                contributingValues.Add(observation.Value!.Value);
+                contributingValues.Add(value);
             }
 
             points.Add(new SeriesPoint(
@@ -60,6 +60,10 @@ public sealed class BaselineService
         var weeksContributing = contributingValues.Count;
         decimal? mean = weeksContributing > 0 ? contributingValues.Average() : null;
 
+        // Unclamped: Requirements §"Percentage points, not percentages, on rate tiles" gives
+        // `completed` at an 82.3% baseline a bandHigh of 115% and puts the 100% clamp at
+        // "display" — the API reports the arithmetic the tolerance control actually produces, and
+        // the frontend clamps it for rendering. It never affects a verdict either way.
         decimal? bandLow = null;
         decimal? bandHigh = null;
         if (requestedWindow != 1 && mean is not null)
@@ -67,11 +71,6 @@ public sealed class BaselineService
             var spread = mean.Value * (thresholds.TolerancePct / 100m);
             bandLow = mean.Value - spread;
             bandHigh = mean.Value + spread;
-            if (kind == TileKind.Rate)
-            {
-                bandLow = Math.Max(0m, bandLow.Value);
-                bandHigh = Math.Min(100m, bandHigh.Value);
-            }
         }
 
         return new BaselineResult(
@@ -86,6 +85,13 @@ public sealed class BaselineService
     {
         if (kind == TileKind.Count)
         {
+            if (observation.Value is null)
+            {
+                // Defensive: a count is never null by contract; treat an unexpected null as
+                // partial rather than let it reach the mean as an unchecked `!`.
+                return (false, SeriesExclusionReason.PartialWeek);
+            }
+
             var completeness = observation.ExpectedDays > 0
                 ? (decimal)observation.DaysIncluded / observation.ExpectedDays
                 : 0m;

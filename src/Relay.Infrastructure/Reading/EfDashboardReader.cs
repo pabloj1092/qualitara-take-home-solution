@@ -37,10 +37,18 @@ public sealed class EfDashboardReader(RelayDbContext db) : IDashboardReader
                 new DisclosureData(0, []));
         }
 
-        var weekStarts = query.ViewedWeek.Preceding(query.Window)
-            .Select(w => w.Start)
-            .Append(query.ViewedWeek.Start)
-            .ToList();
+        // Density is owned by SQL, not recomputed here: iso_weeks is the actual spine, so the
+        // week list is read from it (ordered, capped at window+1) rather than reconstructed by
+        // calendar arithmetic in C#. If fewer than window+1 rows exist before the viewed week,
+        // this naturally returns fewer weeks — the clamping BaselineService reports as
+        // WeeksEffective.
+        var weekStarts = await db.IsoWeeks.AsNoTracking()
+            .Where(w => w.WeekStart <= query.ViewedWeek.Start)
+            .OrderByDescending(w => w.WeekStart)
+            .Take(query.Window + 1)
+            .Select(w => w.WeekStart)
+            .ToListAsync(ct);
+        weekStarts.Reverse();
 
         // Day-completeness is a (location, week) fact, repeated redundantly across every
         // event_type/outcome row it touches — dedupe per location first (Max is a "pick one",

@@ -1217,3 +1217,89 @@ Ready for Stage 1 (the full backend — Domain, Application, Infrastructure, Api
 
 ---
 
+<!-- qa:702e4a2b-1946-4263-bd67-3b62af22f6dc -->
+## 2026-08-20 23:55:57 CST
+
+**Q:**
+
+ok looks good, continue with next stage
+
+**A:**
+
+Now on to Stage 1 — the full backend written against views that don't exist yet. Starting with the pure `Relay.Domain` layer.
+
+Now `WeekRange` — the more involved one:
+
+I need to stop and read the actual §1/§2 tables in RequirementsFinal.md before writing `BaselineService`/`StatusEvaluator` — PLAN.md is explicit that these tables *are* the specification, and I shouldn't reverse-engineer the ladder from PLAN.md's prose summary alone.
+
+Good — the actual §1 table (12 rows) and §2 (5 cases) are much more precise than PLAN.md's prose summary. Now writing the Application layer's pure core against these exact rules.
+
+Now `Status/StatusResult.cs` and `Status/StatusEvaluator.cs`:
+
+I need to add a `DefaultWindow` field to `AccountMeta` — the `/meta` response needs `defaults.window` (from `account_dashboard_settings.default_comparison_weeks`), and `ThresholdSet` has no such field.
+
+Now `RequestValidationException`, then `DashboardQueryService` and `MetaQueryService` — the orchestrator that owns request resolution against `AccountMeta`.
+
+Now `MetaQueryService`:
+
+Let's build now to catch compile errors early before moving to Infrastructure.
+
+Now the `StubDashboardReader`/`StubAccountMetadataReader` — pure in-memory port implementations, usable by both the Stage 1 checkpoint and Stage 3's orchestrator tests.
+
+Now the architecture guard test and a handful of pure-core smoke assertions (Stage 1's checkpoint #1 and #3 — not the full §1/§2 suite, which is Stage 3's).
+
+Now the Infrastructure layer. Let me check the existing `schema.sql` and `sql/local_time.sql` to get exact column names for the entities and the migration SQL.
+
+Now the Infrastructure layer — entities first, matching the schema PLAN.md's Migration 001 will create in Stage 2.
+
+Now adding the `EFCore.NamingConventions` package (snake_case column mapping, avoiding ~40 manual `HasColumnName` calls) and writing `RelayDbContext`.
+
+Now the two EF readers — the most complex part of Stage 1.
+
+Now let's build the Infrastructure layer to catch errors.
+
+Now the Api layer — DTOs first.
+
+I need `hasPrevious`/`hasNext` bounds in the dashboard response — let me extend `DashboardResult` with the account's week bounds so the controller doesn't need a second read.
+
+Now the Meta DTOs:
+
+Now `DashboardRequestValidator` — cheap, DB-free pre-checks that fail fast before any read:
+
+Now the optional Stage-1 checkpoint enhancement — a stub-data seed for the `dashboard` endpoint before the real database exists — then `Program.cs`.
+
+Now `Program.cs` — the composition root.
+
+Now let's build the whole solution and fix compile errors.
+
+Whole solution builds clean, `TreatWarningsAsErrors` included. Let's run the unit test suite and then the Stage 1 checkpoints in order.
+
+Architecture test + smoke tests pass. Now the Swagger check (checkpoint #2) and the missing-relation error check (checkpoint #4) against the real (pre-migration) database.
+
+`deltaPp` nullable ✓, `value` nullable ✓, `series[]` present ✓. Now checkpoint #4 — hitting the real endpoint before Stage 2's migration should give a clean, legible error, not a 500 stack dump.
+
+Checkpoint #4 passes — a legible, handled 500 naming the missing relation, not a raw stack trace. Now let's verify the optional stub-reader checkpoint (#5).
+
+All Stage 1 checkpoints pass. Let's shut down servers, run the full test suite once more, and do a final clean-build verification before committing.
+
+Clean build from scratch, all tests pass. Let's review the diff before committing.
+
+That's a harmless Angular CLI analytics-preference write triggered by running `ng`/`npm start`, fine to include. Staging and committing Stage 1.
+
+##### Stage 1 complete
+
+Built the whole .NET backend against views that don't exist until Stage 2 — Domain, Application (pure `BaselineService`/`StatusEvaluator` written directly off RequirementsFinal.md's actual §1 (12-row) and §2 (5-case) tables, not PLAN.md's summary), Infrastructure (EF readers implementing the two ports), and Api (controller, DTOs, validation, Program.cs composition root).
+
+**Checkpoints, run and verified above:**
+1. `dotnet build` clean at `TreatWarningsAsErrors` from a fresh `rm -rf bin obj` ✓
+2. Architecture guard test — `Relay.Application`'s assembly references no EF Core, Npgsql, or Infrastructure ✓ (5/5 unit tests green)
+3. Swagger schema matches the contract exactly, including `baselineWeeksUsed`, nullable `deltaPp`/`value`, dense `series[]` ✓
+4. `curl` against the real, pre-migration database → a legible `ProblemDetails` 500 naming `relation "locations" does not exist`, not a raw stack trace ✓
+5. *(optional, taken)* `UseStubDashboardReader=true` → full realistic payload for account 6, plus working 404 (unknown account) and 400s (bad window/tolerance/week) with actionable messages — the entire assembly path proven before the database exists ✓
+
+**One judgment call worth flagging**, since PLAN.md's field list is illustrative rather than exhaustive and this affects future stages: `TileSeries` in the read port carries `event_type_catalog`/`outcome_catalog` display names, sort orders, and polarity alongside the observations — the alternative (a second round trip through the metadata port for labels) seemed worse. Also, count tiles have no natural polarity of their own (only outcomes do), so I assign them `OutcomePolarity.Good` — a volume drop is the direction worth flagging, a spike isn't — since `tolerance_pct` explicitly "governs count and rate tiles alike" per the spec. Both are documented in code comments; happy to revisit either.
+
+Ready for Stage 2 (the migration that brings this backend to life) on your go-ahead.
+
+---
+

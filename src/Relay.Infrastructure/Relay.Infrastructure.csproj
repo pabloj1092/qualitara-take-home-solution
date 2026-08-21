@@ -13,4 +13,8 @@
     <ProjectReference Include="..\Relay.Application\Relay.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Migrations\Sql\*.sql" />
+  </ItemGroup>
+
 </Project>

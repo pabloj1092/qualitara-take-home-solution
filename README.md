@@ -36,3 +36,20 @@ I told claude to review my requirements draft and give me recommendations. Took 
 With a final requirement I created a plan.md
 
 Before implementing the plan I downloaded some skills to make sure to follow best practices for C#, Angular and Postgres
+
+## Implementation decisions
+
+Calls made during the build that PLAN.md's 13 "Open questions / conflicts" didn't cover — same
+format, continuing the numbering.
+
+**14 · Count-tile polarity.** Count tiles have no outcome and therefore no
+`outcome_catalog.polarity` of their own — polarity is only defined per `(event_type, outcome)`.
+Yet `tolerance_pct` explicitly "govern[s] count and rate tiles alike"
+(RequirementsFinal.md §"Percentage points, not percentages, on rate tiles"), and the status
+ladder's Breach/Warning rules say "deviation on the bad side" without restricting themselves to
+rate tiles. Something has to decide which direction is "bad" for a raw count.
+→ **Decided** `OutcomePolarity.Good` — a volume drop is the actionable direction on a monitoring
+dashboard ("calls stopped coming in"), a spike is not. Implemented in
+`src/Relay.Infrastructure/Reading/EfDashboardReader.cs`. Documented here, not just in the code
+comment, because it's a real product judgment call in the same family as the 13 above, not an
+implementation detail.

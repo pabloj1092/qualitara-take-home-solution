@@ -1357,3 +1357,31 @@ All 11 unit tests pass (5 original + 6 new regression cases), full solution buil
 
 ---
 
+<!-- qa:cdaa6765-6be8-4d6c-9508-5eeaac895b3d -->
+## 2026-08-21 00:10:08 CST
+
+**Q:**
+
+commit and push the everything here
+
+**A:**
+
+Three unpushed commits from another session, plus a modified `AI_LOG.md`. Since pushing publishes all of it, let me scan first.
+
+Just hook output. Committing and pushing.
+
+Pushed — clean tree, `main` in sync with `origin/main` at `2cf904c`.
+
+**Four commits went up**, not one. Three were already sitting locally unpushed from another session:
+
+- `b385e33` `chore(scaffold): stage 0 solution skeleton`
+- `0b8611d` `feat(backend): stage 1 — the whole .NET application against views that don't exist yet`
+- `014f650` `fix(backend): correct status ladder ordering, remove display-time clamp done server-side`
+- `2cf904c` `docs: update AI usage log` — the only one I made; `AI_LOG.md` was the sole working-tree change
+
+**One thing to be aware of:** the repo is **public**, and `src/Relay.Api/appsettings.json` now publishes the connection string `Host=localhost;...;Username=relay;Password=relay`. That's the throwaway local Docker credential already documented in `CLAUDE.md` and `docker-compose.yml`, so nothing real is exposed — but it's now in public history, and it's the kind of thing worth moving to user-secrets or an env var before this is reviewed, since a reviewer may read it as a habit rather than a fixture.
+
+Account switch to `pabloj1092` was needed again for the push, and it's been switched back to `pcuberfuse`.
+
+---
+

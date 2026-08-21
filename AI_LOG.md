@@ -1303,3 +1303,57 @@ Ready for Stage 2 (the migration that brings this backend to life) on your go-ah
 
 ---
 
+<!-- qa:e5b2cd7b-d45f-4ba5-9809-30428829cf50 -->
+## 2026-08-21 00:08:20 CST
+
+**Q:**
+
+review this feedback and fix accodingly
+
+Correctness bugs
+1 · `min_baseline_events` is applied to rate tiles — `StatusEvaluator.cs:25`. Rung 1 compares `baseline.Mean < MinBaselineEvents` without looking at `kind`, but on a rate tile the mean is a percentage, not an event count. `RequirementsFinal.md:88` is unambiguous: "Rate tiles gate on the denominator, not the mean". Consequence: any rate tile with a baseline under 5% is permanently grey with `reasonCode: baselineBelowMinEvents`. Aggregate rates in the seed run 12.4%–82.3%, so it doesn't bite today — but it will on per-location slices and rare outcomes. The `Mean == 0` guard must still apply to rates (it's what prevents the division by zero on line 57).
+2 · `BaselineZero` is dead code — `StatusEvaluator.cs:30`. With `MinBaselineEvents = 5`, the `< 5` branch has already caught zero. `ReasonCode.BaselineZero` is never emitted, and a zero baseline reports as "below the minimum". Swap the order: `== 0` first, then `< MinBaselineEvents`.
+3 · A null mean reports the wrong reason — same line 25. `Mean is null` means zero contributing weeks, whose correct reason is `InsufficientHistory`, not `BaselineBelowMinEvents`. The `WeeksContributing` check (line 35) should come first.
+4 · A week with no rows escapes the `PartialWeek` rung — `StatusEvaluator.cs:48` together with `GetValueOrDefault(week, (0, 0))` in `EfDashboardReader.cs`. If the viewed week has no rows at all in the fact, it arrives as `DaysIncluded = 0, ExpectedDays = 0`; `0 < 0` is false, so the tile gets judged as a genuine zero instead of being flagged partial. The baseline does exclude it (completeness = 0), so the two paths disagree. Dense SQL in Stage 2 may prevent it from firing, but an `ExpectedDays == 0` guard costs one line.
+5 · Two `!` that can throw — `BaselineService.cs:43` and `viewedValue!.Value` in the evaluator. For count tiles `Classify` returns `included: true` without checking `Value is null`; the reader never produces a null count today, but it's a latent NRE one view change away.
+Deviations from the plan
+
+* Densification happens in C#, not SQL — `EfDashboardReader.cs` builds `weekStarts` from `Preceding(window)` and fills gaps in memory. The plan says densification happens "on the SQL side of the port" and that this is why `iso_weeks` exists. It works, but decide it now: if Stage 2 densifies too, the logic is duplicated; if it doesn't, `iso_weeks` loses its purpose.
+* The band is clamped to [0, 100] in the payload — `BaselineService.cs:73`. `RequirementsFinal.md:94` puts the clamp at display time ("clamp at 100% on display") and cites 115% as the value the arithmetic produces. Clamping server-side breaks no verdict, but it's a different decision from the one written down.
+* Count-tile polarity is hard-coded to `Good` — `EfDashboardReader.cs:107`
+
+**A:**
+
+Reviewing each point — the ladder-ordering bugs are real and the two `!` are legitimate latent NREs. Let me fix them in order: `StatusEvaluator` first, then `BaselineService`, then the reader's densification and band-clamping.
+
+Now `BaselineService` — fix the `!` NRE risk in `Classify`/contributing-values loop.
+
+Now removing the server-side band clamp (Deviation #2 — clamp belongs at display time per the spec's own wording and worked example):
+
+Now the densification deviation — sourcing the week list from `iso_weeks` (SQL) instead of `WeekRange.Preceding()` (C# date arithmetic) so `iso_weeks` is the actual, single source of truth.
+
+Let's rebuild the unit test suite with regression cases for each fixed bug, then rerun.
+
+Let's do a final full-solution build and a live smoke check against the stub reader to confirm the fixes hold end-to-end.
+
+The fixes hold end-to-end. Let's stop the server and commit.
+
+##### Fixed — summary against the feedback
+
+**Correctness bugs (all fixed, all now regression-tested):**
+1. `min_baseline_events` → count tiles only now; rate tiles gate purely on the denominator ([StatusEvaluator.cs](src/Relay.Application/Status/StatusEvaluator.cs))
+2. `BaselineZero` is reachable — checked ahead of the min-events comparison
+3. Null mean → `InsufficientHistory` (the `WeeksContributing` check runs first, folding in the null case)
+4. `ExpectedDays == 0` now trips `PartialWeek` explicitly, so a no-rows viewed week can't masquerade as complete
+5. Both `!.Value` sites replaced with pattern-matched guards (`is { } value`) — an unexpected null now degrades gracefully instead of throwing
+
+**Deviations, both corrected:**
+* `EfDashboardReader` now reads its week list from `iso_weeks` via SQL (`Take(window + 1)`, ordered) instead of recomputing it with `WeekRange.Preceding()` in C#. Density has one source of truth now, and `iso_weeks` is actually load-bearing from Stage 1 onward, not just decoration for Stage 2.
+* `BaselineService` no longer clamps the rate band — it returns the raw arithmetic (verified against the spec's own worked example: 82.3% baseline × 1.4 = 115.22%, asserted in a new test). Clamping to 100% for display is deferred to Stage 4's frontend, per `RequirementsFinal.md:94`.
+
+**Left unchanged:** count-tile polarity hardcoded to `Good`. The feedback listed it as a deviation for visibility, not as a bug — it's a documented design call (no `outcome_catalog` polarity exists for a raw count, and `tolerance_pct` explicitly governs count and rate tiles alike, so *some* polarity has to be chosen; a volume drop is the actionable direction for a call-center dashboard). Flagging again here in case you want it revisited.
+
+All 11 unit tests pass (5 original + 6 new regression cases), full solution builds clean at `TreatWarningsAsErrors`, and I re-verified end-to-end against the stub reader. Committed as [014f650](https://github.com/Qualitara/tv-analytics-takehome/commit/014f650) — ready to continue to Stage 2 when you are.
+
+---
+

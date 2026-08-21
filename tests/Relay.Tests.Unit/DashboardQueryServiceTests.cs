@@ -82,4 +82,44 @@ public class DashboardQueryServiceTests
         await Assert.ThrowsAsync<RequestValidationException>(
             () => service.GetAsync(1, null, null, 0, null, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task GetAsync_ViewedWeek3OfAccountHistory_Window8ClampsTo2AndReportsEffective()
+    {
+        // Requirements §2 #4 ("viewed week 3 of an account's history with window=8 clamps to 2
+        // and says so"), exercised through the full orchestrator rather than BaselineService
+        // alone. The other two tests in this file use a stub read model with no tiles at all, so
+        // there is nothing in them to observe Window.Effective against — this one seeds a real
+        // tile, mirroring what EfDashboardReader would actually return for an account only 3
+        // calendar weeks into its history: a 3-point spine (2 preceding weeks + the viewed week),
+        // not 9.
+        var meta = new AccountMeta(
+            1, "Young Account", "America/New_York",
+            [new LocationInfo(1, "Site A", null, null)],
+            FirstWeek, LatestWeekWithData, LatestCompleteWeek: LatestWeekWithData,
+            MaxWindowForWeek: 2, DefaultWindow: 8, ThresholdSet.Defaults);
+
+        var metadataReader = new StubAccountMetadataReader().Seed(1, meta);
+        var spine = LatestWeekWithData.Preceding(2)
+            .Select(w => new WeekObservation(w.Start, 10m, null, 7, 7))
+            .Append(new WeekObservation(LatestWeekWithData.Start, 10m, null, 7, 7))
+            .ToList();
+        var dashboardReader = new StubDashboardReader().Seed(
+            1,
+            new DashboardReadModel(
+                new AccountInfo(1, "Young Account", "America/New_York"),
+                meta.Locations,
+                [new TileSeries(
+                    new TileKey("call_received", null, TileKind.Count),
+                    "Calls received", 1, null, 0, OutcomePolarity.Good, spine)],
+                new DisclosureData(0, [])));
+
+        var service = new DashboardQueryService(dashboardReader, metadataReader, TimeProvider.System);
+
+        var result = await service.GetAsync(1, null, null, 8, null, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(8, result.Window.Requested);
+        Assert.Equal(2, result.Window.Effective);
+    }
 }

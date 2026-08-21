@@ -18,7 +18,8 @@ public sealed record SeriesPointDto(
     int ExpectedDays,
     bool IncludedInBaseline,
     SeriesExclusionReason? ExclusionReason,
-    bool IsViewedWeek);
+    bool IsViewedWeek,
+    bool OverlapsExclusion);
 
 public sealed record TileDto(
     string Key,

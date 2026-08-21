@@ -103,6 +103,23 @@ public class PureCoreSmokeTests
     }
 
     [Fact]
+    public void StatusEvaluator_NewAccountWithThinDenominator_ReportsHistoryNotDenominator()
+    {
+        // The opposite of StatusEvaluator_ThinRateDenominator_WinsOverInsufficientHistory: here the
+        // account is genuinely new (WeeksEffective = 2, fewer than MinHistoryWeeks = 4 calendar
+        // weeks even exist), and the viewed week's denominator also happens to be thin (n=11). The
+        // correct reason is InsufficientHistory — no amount of volume this week fixes "too new".
+        var baseline = new BaselineResult(36.36m, null, null, 8, 2, 2, []);
+
+        var result = new StatusEvaluator().Evaluate(
+            36.36m, 11, 7, 7, baseline, OutcomePolarity.Good, TileKind.Rate, Thresholds);
+
+        Assert.Equal(TileStatus.InsufficientData, result.Status);
+        Assert.Equal(ReasonCode.InsufficientHistory, result.Reason);
+        Assert.NotEqual(ReasonCode.DenominatorBelowMin, result.Reason);
+    }
+
+    [Fact]
     public void EndToEnd_ThinRateVolumeAcrossSixMonthsOfHistory_ReportsDenominatorNotHistory()
     {
         // Mirrors the reported bug exactly: six months (26 weeks) of real history, but every

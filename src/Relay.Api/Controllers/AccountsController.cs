@@ -86,7 +86,7 @@ public sealed class AccountsController(DashboardQueryService dashboardQueryServi
 
     private static SeriesPointDto ToDto(SeriesPoint point) =>
         new(point.WeekStart, point.Value, point.Denominator, point.DaysIncluded, point.ExpectedDays,
-            point.IncludedInBaseline, point.ExclusionReason, point.IsViewedWeek);
+            point.IncludedInBaseline, point.ExclusionReason, point.IsViewedWeek, point.OverlapsExclusion);
 
     private static string TileKeyString(TileKey key) =>
         key.Outcome is null ? key.EventType : $"{key.EventType}.{key.Outcome}";

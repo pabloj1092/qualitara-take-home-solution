@@ -245,7 +245,11 @@ public sealed class DashboardQueryService(
 
     /// <summary>Upgrades a generically "PartialWeek" point to the more specific
     /// "DataQualityExclusion" when it overlaps a disclosed exclusion window — same underlying
-    /// incompleteness, a more honest label.</summary>
+    /// incompleteness, a more honest label. Also sets <see cref="SeriesPoint.OverlapsExclusion"/>
+    /// on every overlapping point regardless of its exclusion reason: a week can overlap an
+    /// exclusion and still clear the completeness floor (removing 1 of 7 days lands exactly at
+    /// min_week_completeness, not below it), so the reason alone is not a reliable signal that the
+    /// sparkline can hatch on.</summary>
     private static IReadOnlyList<SeriesPoint> ApplyDisclosures(
         IReadOnlyList<SeriesPoint> series, DisclosureData disclosures)
     {
@@ -257,14 +261,17 @@ public sealed class DashboardQueryService(
         return series
             .Select(point =>
             {
-                if (point.ExclusionReason != SeriesExclusionReason.PartialWeek)
+                var weekEnd = point.WeekStart.AddDays(6);
+                var overlaps = disclosures.Exclusions.Any(x => x.FromDate <= weekEnd && x.ToDate >= point.WeekStart);
+                if (!overlaps)
                 {
                     return point;
                 }
 
-                var weekEnd = point.WeekStart.AddDays(6);
-                var overlaps = disclosures.Exclusions.Any(x => x.FromDate <= weekEnd && x.ToDate >= point.WeekStart);
-                return overlaps ? point with { ExclusionReason = SeriesExclusionReason.DataQualityExclusion } : point;
+                var reason = point.ExclusionReason == SeriesExclusionReason.PartialWeek
+                    ? SeriesExclusionReason.DataQualityExclusion
+                    : point.ExclusionReason;
+                return point with { ExclusionReason = reason, OverlapsExclusion = true };
             })
             .ToList();
     }

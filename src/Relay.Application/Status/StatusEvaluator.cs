@@ -23,8 +23,17 @@ public sealed class StatusEvaluator
     {
         // Rung 1 · InsufficientData — never a colour, never red, outranks every other rule.
         //
-        // Order matters, and it is checked in decreasing specificity. A thin rate denominator on
-        // the *viewed* week is checked first: it is the more direct, more actionable explanation,
+        // Order matters, and it is checked in decreasing specificity. A definitively-too-new
+        // account/location — fewer than MinHistoryWeeks calendar weeks even exist in the spine yet
+        // — is checked first and unconditionally: no amount of volume in the viewed week can
+        // satisfy a calendar-time requirement, so this must win over the denominator check below
+        // even when the viewed week also happens to be thin. WeeksEffective (not WeeksContributing)
+        // is the right signal here — it counts weeks that exist at all, before any are dropped for
+        // being too thin or incomplete, so it is unaffected by *why* older weeks failed to
+        // contribute.
+        //
+        // Past that gate, a thin rate denominator on the *viewed* week is checked next: for an
+        // account with enough calendar history, it is the more direct, more actionable explanation,
         // and low volume tends to drag down the baseline candidate weeks right alongside it — so
         // whichever check runs first is the reason the user actually sees whenever both are true
         // at once, which is the common case for a quiet outcome, not the rare one. Reporting
@@ -36,6 +45,11 @@ public sealed class StatusEvaluator
         // below regardless of tile kind. MinBaselineEvents itself is an event-count threshold and
         // only means something for count tiles — rate tiles gate on the denominator, not the mean
         // (Requirements §"Defining min_baseline_events").
+        if (baseline.WeeksEffective < thresholds.MinHistoryWeeks)
+        {
+            return new StatusResult(TileStatus.InsufficientData, ReasonCode.InsufficientHistory, null, null);
+        }
+
         if (kind == TileKind.Rate
             && (viewedDenominator is null || viewedDenominator < thresholds.MinRateDenominator))
         {

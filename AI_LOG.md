@@ -1408,3 +1408,55 @@ Ready to continue to Stage 2 (the migration) whenever you give the go-ahead.
 
 ---
 
+<!-- qa:25f49945-65f9-467e-9631-b007a8b90674 -->
+## 2026-08-21 00:18:38 CST
+
+**Q:**
+
+Thin rate tiles now report the wrong reason. I ran the stub payload and got this:
+
+```
+lead_created.converted   36.36  insufficientData  insufficientHistory  n=11
+appointment_set.completed 80    insufficientData  insufficientHistory  n=5
+```
+
+Those tiles are grey because their denominators (11, 5) are below `min_rate_denominator = 20` — that's the actual cause, and `DenominatorBelowMin` is the reason code that exists to say so. But since the same threshold also drops every baseline week in `Classify`, `WeeksContributing` hits 0 and the history check — which now runs first — wins. The result: `DenominatorBelowMin` is unreachable whenever the baseline weeks are thin too, which is the common case. The user-facing label becomes "not enough history" for an account that has six months of it.
+Fix is one move: hoist the rate-denominator check above the history check for `kind == TileKind.Rate`. Note this is the mirror image of bug 2 from the last pass — one reason code shadowing another — so it's worth adding an assertion on the reason, not just the status, in the Stage 3 §1 suite.
+Stage 2 dependency this fix created
+Removing `.Append(query.ViewedWeek.Start)` means `weekStarts` no longer guarantees it ends at the viewed week — it now inherits that from `iso_weeks`. If the viewed week is ever missing from the spine, `BaselineService.Build` throws `ArgumentException("Spine must be dense, ascending, and end at the viewed week")` → an unhandled 500. `DashboardQueryService` validates the week against `[firstWeek, latestWeekWithData]` first, so it holds as long as Stage 2 defines `iso_weeks` gaplessly across the full range including the boundary weeks. Worth an explicit integration assertion in Stage 3 rather than leaving it implied.
+
+**A:**
+
+Confirmed — the ladder reordering from last time introduced exactly the shadowing bug you found. Let me fix the priority and address the Stage 2 dependency note.
+
+Now let's build and run the full unit suite.
+
+Now let's confirm against the actual stub payload — the exact scenario the user reported.
+
+`lead_created.converted` (n=11) and `appointment_set.completed` (n=5) now correctly report `denominatorBelowMin` instead of `insufficientHistory`. Let's stop the server and address the Stage 2 dependency note.
+
+Now the Stage 2 dependency — let me harden the failure mode now (matching the "legible error" pattern from checkpoint 4) and record the two Stage 3 test obligations in PLAN.md so they aren't lost.
+
+Now let's record the two Stage 3 test obligations in PLAN.md so they aren't lost.
+
+Now let's build, run tests, and do a final live sanity check before committing.
+
+Clean build, all 13 tests pass. Let's commit.
+
+##### Fixed
+
+**The shadowing bug** — `StatusEvaluator` now checks the viewed week's own rate denominator *before* the history check. Re-verified against all 12 §1 table rows (order changed, no result changed) and against your exact reported case:
+
+```
+lead_created.converted    n=11  →  denominatorBelowMin   (was insufficientHistory)
+appointment_set.completed n=5   →  denominatorBelowMin   (was insufficientHistory)
+```
+
+Added two tests that assert the **reason**, not just the status — a hand-built `BaselineResult` reproducing the shadow directly, and a full `BaselineService → StatusEvaluator` run over 26 weeks of thin-volume history mirroring the real scenario. Also noted in [PLAN.md](PLAN.md) so Stage 3's §1 suite carries this obligation forward rather than rediscovering it.
+
+**The Stage 2 dependency** — added an explicit guard in `EfDashboardReader`: if `iso_weeks` ever has a gap at the viewed week, it now fails with `InvalidOperationException` naming the account and week, instead of `BaselineService`'s generic `ArgumentException` surfacing as an unexplained 500. The gaplessness itself is still Stage 2/3's to build and prove — I recorded both the reason-code assertion and an explicit "assert `iso_weeks` is gapless across `[firstWeek, latestWeekWithData]`" obligation directly in PLAN.md's Stage 3 section so they're tracked rather than implied.
+
+All 13 unit tests pass, clean build from scratch. Committed as [0d044a8](https://github.com/Qualitara/tv-analytics-takehome/commit/0d044a8).
+
+---
+

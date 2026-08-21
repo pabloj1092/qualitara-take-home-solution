@@ -87,9 +87,11 @@ public sealed class DashboardQueryService(
                 new DisclosureData(0, []));
         }
 
-        var viewedWeek = requestedWeek ?? meta.LatestCompleteWeek!.Value;
         var firstWeek = meta.FirstWeek.Value;
         var latestWeekWithData = meta.LatestWeekWithData!.Value;
+        // LatestCompleteWeek is genuinely nullable (an account whose locations never all report a
+        // full week at once has none) — fall back one step further rather than dereferencing it.
+        var viewedWeek = requestedWeek ?? meta.LatestCompleteWeek ?? latestWeekWithData;
         if (viewedWeek.Start < firstWeek.Start || viewedWeek.Start > latestWeekWithData.Start)
         {
             throw new RequestValidationException(
@@ -98,13 +100,19 @@ public sealed class DashboardQueryService(
                 $"[{firstWeek.ToIsoWeek()}, {latestWeekWithData.ToIsoWeek()}].");
         }
 
-        var window = windowParam ?? meta.DefaultWindow;
-        if (window < 1 || window > meta.MaxWindowForWeek)
+        // maxWindowForWeek shrinks to 0 at the very first week — that week is still legitimately
+        // viewable (Requirements §5 only says the max "shrinks as week moves backwards"), so a
+        // too-large window clamps and WindowInfo.Effective says so, rather than 400ing against a
+        // range no value (not even the default) could ever satisfy. Only a malformed window
+        // (< 1) is rejected — DashboardRequestValidator already catches this earlier, this is a
+        // second, defensive check.
+        var requestedWindow = windowParam ?? meta.DefaultWindow;
+        if (requestedWindow < 1)
         {
-            throw new RequestValidationException(
-                "window",
-                $"'{window}' must be between 1 and {meta.MaxWindowForWeek} for week {viewedWeek.ToIsoWeek()}.");
+            throw new RequestValidationException("window", $"'{requestedWindow}' must be at least 1.");
         }
+
+        var window = Math.Min(requestedWindow, Math.Max(1, meta.MaxWindowForWeek));
 
         var tolerancePct = toleranceParam ?? meta.Thresholds.TolerancePct;
         if (tolerancePct is < 1 or > 100)
@@ -137,7 +145,7 @@ public sealed class DashboardQueryService(
             viewedWeek,
             firstWeek,
             latestWeekWithData,
-            new WindowInfo(window, weeksEffective),
+            new WindowInfo(requestedWindow, weeksEffective),
             tolerancePct,
             locationSelections,
             sections,

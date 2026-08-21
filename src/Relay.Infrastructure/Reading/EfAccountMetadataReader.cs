@@ -66,32 +66,37 @@ public sealed class EfAccountMetadataReader(RelayDbContext db) : IAccountMetadat
     }
 
     /// <summary>
-    /// The latest week where every selected... here, every one of the account's locations is
-    /// fully complete (Requirements §"Week completeness": pool as SUM(days_included) /
-    /// SUM(expected_days) — never sum the day columns across an individual location's own
-    /// event-type/outcome rows, since they repeat identically there).
+    /// The latest week where every one of the account's locations is fully complete
+    /// (Requirements §"Week completeness": pool as SUM(days_included) / SUM(expected_days) —
+    /// never sum the day columns across an individual location's own event-type/outcome rows,
+    /// since they repeat identically there). Raw SQL rather than two chained LINQ GroupBys: EF
+    /// cannot translate "group, take one per group, then group and sum again" as a single pushed-
+    /// down query, and materializing every (week, location) pair client-side to reduce it in C#
+    /// is the one query in this reader that doesn't push down — see PLAN.md's Pushdown check.
+    /// The account_id predicate on the innermost subquery reaches weekly_activity_facts directly,
+    /// so it inlines into the view the same way the rest of this reader's queries do.
     /// </summary>
     private async Task<WeekRange?> ComputeLatestCompleteWeekAsync(int accountId, CancellationToken ct)
     {
-        var perLocationWeek = await db.WeeklyActivityFacts.AsNoTracking()
-            .Where(f => f.AccountId == accountId)
-            .GroupBy(f => new { f.WeekStartLocal, f.LocationId })
-            .Select(g => new
-            {
-                g.Key.WeekStartLocal,
-                Included = g.Max(x => x.DaysIncluded),
-                Expected = g.Max(x => x.ExpectedDays),
-            })
+        var rows = await db.Database.SqlQuery<DateOnly>($"""
+            SELECT week_start_local
+            FROM (
+                SELECT week_start_local, SUM(days_included) AS included, SUM(expected_days) AS expected
+                FROM (
+                    SELECT DISTINCT ON (week_start_local, location_id)
+                           week_start_local, location_id, days_included, expected_days
+                    FROM weekly_activity_facts
+                    WHERE account_id = {accountId}
+                    ORDER BY week_start_local, location_id
+                ) AS per_location_week
+                GROUP BY week_start_local
+            ) AS per_week
+            WHERE expected > 0 AND included = expected
+            ORDER BY week_start_local DESC
+            LIMIT 1
+            """)
             .ToListAsync(ct);
 
-        var latest = perLocationWeek
-            .GroupBy(x => x.WeekStartLocal)
-            .Select(g => new { Week = g.Key, Included = g.Sum(x => x.Included), Expected = g.Sum(x => x.Expected) })
-            .Where(x => x.Expected > 0 && x.Included == x.Expected)
-            .OrderByDescending(x => x.Week)
-            .Select(x => (DateOnly?)x.Week)
-            .FirstOrDefault();
-
-        return latest is { } weekStart ? new WeekRange(weekStart, weekStart.AddDays(6)) : null;
+        return rows.Count > 0 ? new WeekRange(rows[0], rows[0].AddDays(6)) : null;
     }
 }

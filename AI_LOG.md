@@ -2235,3 +2235,32 @@ Pushed. Clean tree, `main` in sync at `3b1b037`.
 
 ---
 
+<!-- qa:cbdf72f9-daba-450f-8fb0-dae09ff9bc89 -->
+## 2026-08-21 06:38:37 CST
+
+**Q:**
+
+merge the web into the root and then commit
+
+**A:**
+
+Web entries at 06:03 and 06:17 fall *between* root entries (05:43, 06:11, 06:36), so this needs a chronological interleave, not an append. Writing a merge script.
+
+Interleaved correctly. Verifying nothing was lost before removing the web file.
+
+One entry ended with an extra newline, so my separator check misfired and doubled its `---`. Redoing from the backup with a corrected check.
+
+38 + 2 = 40. Nothing added or lost. Removing the web copy and committing.
+
+Merged and committed as `d5afea6`. Not pushed — you asked to commit, so I stopped there.
+
+**What the merge did:** the two `web/AI_LOG.md` entries (06:03:28 and 06:17:03) slot *between* existing root entries rather than after them, so this was a chronological interleave, not an append. Root now holds all 33 entries in timestamp order, and `web/AI_LOG.md` is deleted.
+
+**Verified:** all 33 uuids present, per-entry content byte-identical after normalizing separators, and the `---` count adds up exactly (38 + 2 = 40 — the surplus over 33 is horizontal rules inside message text, which were already there).
+
+One correction worth noting: my first pass doubled the `---` on a single entry whose original ended with a stray extra newline. I caught it in verification, restored from a backup, and redid the merge with a tail-normalizing regex. The committed file is from the corrected run.
+
+**Still outstanding:** the hook resolves `AI_LOG.md` from the session's `cwd`, so a future session started in `web/` will recreate the split. I noted that in the commit message but didn't change `log_ai_usage.py` — want me to make it walk up to the project root, and push both together?
+
+---
+

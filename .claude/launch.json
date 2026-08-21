@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "relay-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "web", "start"],
+      "port": 4200,
+      "autoPort": false
+    }
+  ]
+}

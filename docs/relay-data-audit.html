@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Relay Activity Data Audit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:ital,wght@0,400;0,600;1,400&display=swap">
+  <meta name="description" content="Structural and statistical audit of the Relay activity dataset.">
+
+</head>
+<body>
+<style>
+:root{
+  --ground:#F6F7F9;
+  --surface:#FFFFFF;
+  --surface-sunk:#EDEFF3;
+  --ink:#1A1F26;
+  --ink-soft:#4A5460;
+  --ink-mute:#6E7885;
+  --rule:#D9DDE4;
+  --rule-soft:#E7EAEF;
+  --accent:#15697A;
+  --accent-soft:#E2F0F2;
+  --crit:#B24428;
+  --crit-soft:#F8E7E2;
+  --warn:#A8792B;
+  --warn-soft:#F8EFDD;
+  --good:#2E7A57;
+  --good-soft:#E3F1EA;
+
+  --f-display:"Spectral",Georgia,"Times New Roman",serif;
+  --f-body:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --measure:68ch;
+  --wide:1080px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#13161B;
+    --surface:#1A1E25;
+    --surface-sunk:#20252D;
+    --ink:#E6E9ED;
+    --ink-soft:#AFB7C1;
+    --ink-mute:#8A929D;
+    --rule:#2E343D;
+    --rule-soft:#252A32;
+    --accent:#5FB8C9;
+    --accent-soft:#17323A;
+    --crit:#E2856B;
+    --crit-soft:#33201A;
+    --warn:#D8AC5F;
+    --warn-soft:#302716;
+    --good:#6FBF97;
+    --good-soft:#17291F;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#13161B;
+  --surface:#1A1E25;
+  --surface-sunk:#20252D;
+  --ink:#E6E9ED;
+  --ink-soft:#AFB7C1;
+  --ink-mute:#8A929D;
+  --rule:#2E343D;
+  --rule-soft:#252A32;
+  --accent:#5FB8C9;
+  --accent-soft:#17323A;
+  --crit:#E2856B;
+  --crit-soft:#33201A;
+  --warn:#D8AC5F;
+  --warn-soft:#302716;
+  --good:#6FBF97;
+  --good-soft:#17291F;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:16px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--wide);margin:0 auto;padding:0 28px 96px}
+.col{max-width:var(--measure)}
+
+/* ---------- masthead ---------- */
+header.mast{
+  border-bottom:1px solid var(--rule);
+  margin-bottom:56px;
+  padding:56px 0 28px;
+}
+.eyebrow{
+  font-family:var(--f-mono);
+  font-size:11px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin:0 0 18px;
+}
+h1{
+  font-family:var(--f-display);
+  font-weight:600;
+  font-size:clamp(34px,5.2vw,52px);
+  line-height:1.1;
+  letter-spacing:-.015em;
+  margin:0 0 18px;
+  text-wrap:balance;
+}
+.standfirst{
+  font-family:var(--f-display);
+  font-size:clamp(17px,2.1vw,20px);
+  line-height:1.55;
+  color:var(--ink-soft);
+  margin:0;
+  max-width:60ch;
+}
+.mast-meta{
+  display:flex;flex-wrap:wrap;gap:0 32px;
+  margin-top:30px;
+  font-family:var(--f-mono);
+  font-size:12px;
+  color:var(--ink-mute);
+}
+.mast-meta b{color:var(--ink);font-weight:500}
+
+/* ---------- typography ---------- */
+h2{
+  font-family:var(--f-display);
+  font-weight:600;
+  font-size:clamp(25px,3.4vw,33px);
+  line-height:1.18;
+  letter-spacing:-.01em;
+  margin:0 0 8px;
+  text-wrap:balance;
+}
+h3{
+  font-family:var(--f-body);
+  font-weight:600;
+  font-size:17px;
+  line-height:1.35;
+  margin:0 0 10px;
+  text-wrap:balance;
+}
+p{margin:0 0 16px}
+a{color:var(--accent)}
+strong{font-weight:600}
+code{
+  font-family:var(--f-mono);
+  font-size:.87em;
+  background:var(--surface-sunk);
+  padding:.12em .38em;
+  border-radius:3px;
+}
+section{margin-bottom:64px}
+.sec-head{
+  display:flex;align-items:baseline;gap:14px;
+  border-top:2px solid var(--ink);
+  padding-top:14px;
+  margin-bottom:26px;
+}
+.sec-num{
+  font-family:var(--f-mono);
+  font-size:12px;
+  font-weight:500;
+  color:var(--ink-mute);
+  letter-spacing:.08em;
+  flex:none;
+  padding-top:6px;
+}
+.lede{font-size:17px;color:var(--ink-soft);max-width:64ch}
+
+/* ---------- stat strip ---------- */
+.stats{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:1px;
+  background:var(--rule);
+  border:1px solid var(--rule);
+  margin:0 0 30px;
+}
+.stat{background:var(--surface);padding:16px 18px}
+.stat .v{
+  font-family:var(--f-mono);
+  font-size:23px;
+  font-weight:500;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+  display:block;
+  line-height:1.25;
+}
+.stat .k{
+  font-size:12px;
+  color:var(--ink-mute);
+  line-height:1.4;
+  display:block;
+  margin-top:3px;
+}
+
+/* ---------- findings ---------- */
+.finding{
+  background:var(--surface);
+  border:1px solid var(--rule);
+  border-left:4px solid var(--sev,var(--ink-mute));
+  padding:20px 22px;
+  margin-bottom:18px;
+}
+.finding.crit{--sev:var(--crit)}
+.finding.warn{--sev:var(--warn)}
+.finding.info{--sev:var(--accent)}
+.f-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:9px}
+.chip{
+  font-family:var(--f-mono);
+  font-size:10px;
+  letter-spacing:.11em;
+  text-transform:uppercase;
+  padding:3px 8px;
+  border-radius:2px;
+  font-weight:500;
+  white-space:nowrap;
+}
+.chip.crit{background:var(--crit-soft);color:var(--crit)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.info{background:var(--accent-soft);color:var(--accent)}
+.chip.good{background:var(--good-soft);color:var(--good)}
+.f-top h3{margin:0;flex:1 1 260px}
+.finding p{margin:0 0 12px;color:var(--ink-soft);font-size:15px}
+.finding p:last-child{margin-bottom:0}
+.impact{
+  font-size:14px;
+  border-top:1px dashed var(--rule);
+  padding-top:11px;
+  margin-top:13px;
+  color:var(--ink);
+}
+.impact b{
+  font-family:var(--f-mono);
+  font-size:10px;
+  letter-spacing:.11em;
+  text-transform:uppercase;
+  color:var(--ink-mute);
+  display:block;
+  margin-bottom:3px;
+  font-weight:500;
+}
+
+/* ---------- tables ---------- */
+.tscroll{overflow-x:auto;margin:0 0 12px;border:1px solid var(--rule);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:460px}
+th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--rule-soft)}
+thead th{
+  font-family:var(--f-mono);
+  font-size:10px;
+  letter-spacing:.09em;
+  text-transform:uppercase;
+  color:var(--ink-mute);
+  font-weight:500;
+  background:var(--surface-sunk);
+  border-bottom:1px solid var(--rule);
+  white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:none}
+td.n,th.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.mono{font-family:var(--f-mono);font-size:13px}
+caption{
+  caption-side:bottom;
+  text-align:left;
+  font-size:13px;
+  color:var(--ink-mute);
+  padding:10px 14px;
+  border-top:1px solid var(--rule-soft);
+}
+.tnote{font-size:13px;color:var(--ink-mute);margin:-2px 0 0}
+
+/* ---------- figures ---------- */
+figure{margin:0 0 26px}
+.fig-box{
+  background:var(--surface);
+  border:1px solid var(--rule);
+  padding:22px;
+  overflow-x:auto;
+}
+figcaption{
+  font-size:13px;
+  color:var(--ink-mute);
+  margin-top:9px;
+  max-width:62ch;
+  line-height:1.55;
+}
+figcaption b{color:var(--ink);font-weight:500}
+.fig-title{
+  font-family:var(--f-mono);
+  font-size:11px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink-mute);
+  margin:0 0 16px;
+}
+svg{display:block;max-width:100%;height:auto}
+.svg-lbl{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:var(--ink-mute)}
+.svg-val{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:var(--ink);font-weight:500}
+.svg-ttl{font-family:"IBM Plex Sans",sans-serif;font-size:12px;fill:var(--ink-soft)}
+
+/* ---------- callout ---------- */
+.callout{
+  background:var(--accent-soft);
+  border:1px solid color-mix(in srgb,var(--accent) 26%,transparent);
+  padding:22px 24px;
+  margin:0 0 26px;
+}
+.callout .fig-title{color:var(--accent);margin-bottom:10px}
+.callout p{margin:0;font-size:16px;max-width:62ch}
+.callout p + p{margin-top:12px}
+
+/* ---------- recommendation list ---------- */
+ol.recs{list-style:none;counter-reset:r;padding:0;margin:0}
+ol.recs > li{
+  counter-increment:r;
+  display:grid;
+  grid-template-columns:34px 1fr;
+  gap:16px;
+  padding:18px 0;
+  border-bottom:1px solid var(--rule);
+}
+ol.recs > li:first-child{border-top:1px solid var(--rule)}
+ol.recs > li::before{
+  content:counter(r,decimal-leading-zero);
+  font-family:var(--f-mono);
+  font-size:12px;
+  color:var(--accent);
+  font-weight:500;
+  padding-top:3px;
+}
+ol.recs h3{margin-bottom:5px}
+ol.recs p{margin:0;font-size:15px;color:var(--ink-soft)}
+ol.recs p + p{margin-top:9px}
+
+ul.plain{padding-left:19px;margin:0 0 16px}
+ul.plain li{margin-bottom:7px;color:var(--ink-soft)}
+ul.plain li::marker{color:var(--ink-mute)}
+
+pre{
+  background:var(--surface-sunk);
+  border:1px solid var(--rule);
+  border-left:3px solid var(--accent);
+  padding:15px 17px;
+  overflow-x:auto;
+  font-family:var(--f-mono);
+  font-size:12.5px;
+  line-height:1.6;
+  margin:0 0 16px;
+}
+pre code{background:none;padding:0;font-size:inherit}
+
+footer.end{
+  border-top:1px solid var(--rule);
+  padding-top:22px;
+  font-size:13px;
+  color:var(--ink-mute);
+  max-width:64ch;
+}
+footer.end p{margin:0 0 9px}
+
+:where(a,summary):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:620px){
+  .wrap{padding:0 18px 64px}
+  .sec-head{flex-direction:column;gap:2px}
+  .sec-num{padding-top:0}
+}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Relay · Data audit</p>
+  <h1>What the activity data can and cannot tell a customer</h1>
+  <p class="standfirst">A structural and statistical review of <code>accounts</code> and <code>activity_events</code>, aimed at two questions the team keeps hearing: <em>is this number normal for us?</em> and <em>which location needs attention?</em></p>
+  <div class="mast-meta">
+    <span>Source <b>relay_takehome</b></span>
+    <span>Window <b>2026-02-01 → 2026-07-27</b></span>
+    <span>Rows <b>12,626</b></span>
+    <span>Reviewed <b>2026-08-20</b></span>
+  </div>
+</header>
+
+<!-- ============ SUMMARY ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">SUMMARY</span><h2>The headline</h2></div>
+
+  <div class="callout">
+    <p class="fig-title">Principal finding</p>
+    <p><strong>Per-location differences in this dataset are statistically indistinguishable from random chance.</strong> Across all 69 location feeds and a full six months of history, the spread in missed-call rate (12.3% to 37.6%) is no wider than what coin-flipping would produce from the same volumes.</p>
+    <p>A dashboard that ranks locations by missed-call rate, conversion rate, or no-show rate is therefore not surfacing the location that needs attention — it is surfacing the location that got unlucky last month. We verified this directly: the ten worst locations in the first half of the period had <em>no</em> tendency to stay bad in the second half (r = 0.06).</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><span class="v">69</span><span class="k">location feeds<br>(account × location)</span></div>
+    <div class="stat"><span class="v">~1.0</span><span class="k">events per location per day</span></div>
+    <div class="stat"><span class="v">0.06</span><span class="k">rate-rank persistence H1→H2</span></div>
+    <div class="stat"><span class="v">0.81</span><span class="k">volume persistence H1→H2</span></div>
+    <div class="stat"><span class="v">1</span><span class="k">defensible alert from 69 sites</span></div>
+  </div>
+
+  <div class="col">
+    <p>The good news is that a different framing works well. <strong>Volume</strong> is a stable, real property of a location (r = 0.81 half-over-half), and volume anomalies at the <em>account</em> level are detectable and meaningful. The "is this normal for us?" question is answerable today; the "which location is worst?" question needs to be reframed as a trend question rather than a ranking question.</p>
+    <p>Four data-quality defects also need handling before any of this ships. One of them — a timezone bug — silently invalidates any hour-of-day feature.</p>
+  </div>
+</section>
+
+<!-- ============ STRUCTURE ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">01</span><h2>Structure</h2></div>
+  <div class="col">
+    <p class="lede">Two tables, one fact table and one dimension. The schema is simple; the subtleties are in the grain and the keys.</p>
+  </div>
+
+  <div class="tscroll">
+    <table>
+      <thead><tr><th>Column</th><th>Type</th><th>Notes from the data</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">accounts.id</td><td class="mono">int PK</td><td>20 accounts, ids 1–20, no gaps</td></tr>
+        <tr><td class="mono">accounts.industry</td><td class="mono">varchar</td><td>8 values; Home Services (6) and Healthcare (4) dominate</td></tr>
+        <tr><td class="mono">accounts.timezone</td><td class="mono">varchar</td><td>6 IANA zones — <strong>not applied to event timestamps</strong> (see D2)</td></tr>
+        <tr><td class="mono">accounts.created_at</td><td class="mono">timestamp</td><td>All 2025; all precede the event window. Not an onboarding signal</td></tr>
+        <tr><td class="mono">activity_events.id</td><td class="mono">int PK</td><td>1–12,626 contiguous, no gaps, no dupe ids</td></tr>
+        <tr><td class="mono">account_id</td><td class="mono">int FK</td><td>No orphans. 19 of 20 accounts have events</td></tr>
+        <tr><td class="mono">location</td><td class="mono">varchar</td><td>Only 15 distinct labels (<code>Site A</code>–<code>Site O</code>), <strong>reused across accounts</strong></td></tr>
+        <tr><td class="mono">event_type</td><td class="mono">varchar</td><td>3 values, no strays, no casing drift</td></tr>
+        <tr><td class="mono">occurred_at</td><td class="mono">timestamp</td><td>UTC. No future dates, none before account creation</td></tr>
+        <tr><td class="mono">duration_seconds</td><td class="mono">int NULL</td><td>Calls only. Uniform 20–1500 — <strong>not real talk time</strong> (see D3)</td></tr>
+        <tr><td class="mono">outcome</td><td class="mono">varchar NULL</td><td>7 values, correctly scoped per event type. ~3.2% NULL</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 style="margin-top:30px">The grain that matters</h3>
+  <div class="col">
+    <p><code>location</code> is <strong>not</strong> a global identifier. "Site A" belongs to 19 different accounts and means a different physical branch in each. The analytical unit is the pair <code>(account_id, location)</code> — 69 distinct location feeds. Any query, index, or join that treats <code>location</code> as standalone will silently blend unrelated businesses.</p>
+    <p>There is also no <code>locations</code> dimension table. Location exists only as a free-text string on the fact table, so there is nowhere to record a site's open date, closure, hours, or headcount — all of which you would need to interpret a volume change correctly.</p>
+  </div>
+
+  <div class="tscroll">
+    <table>
+      <thead><tr><th>Shape of the customer base</th><th class="n">Accounts</th><th class="n">Locations each</th></tr></thead>
+      <tbody>
+        <tr><td>Single-site</td><td class="n">4</td><td class="n">1</td></tr>
+        <tr><td>Small multi-site</td><td class="n">10</td><td class="n">2–4</td></tr>
+        <tr><td>Mid multi-site</td><td class="n">4</td><td class="n">5–7</td></tr>
+        <tr><td>Large group — Metro Collision Centers</td><td class="n">1</td><td class="n">15</td></tr>
+        <tr><td>No activity at all — Quiet Harbor Spa</td><td class="n">1</td><td class="n">0</td></tr>
+      </tbody>
+      <caption>Metro Collision Centers alone holds 21% of all events. Quiet Harbor Spa has zero rows and must not break the dashboard.</caption>
+    </table>
+  </div>
+</section>
+
+<!-- ============ DATA QUALITY ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">02</span><h2>Data quality</h2></div>
+  <div class="col">
+    <p class="lede">Four defects, ranked by how much damage they do to a customer-facing metric. The first two are silent — nothing in the dashboard would look wrong.</p>
+  </div>
+
+  <div class="finding crit">
+    <div class="f-top"><span class="chip crit">Blocker</span><h3>D1 · A one-day bulk backfill inflates one account by 80×</h3></div>
+    <p><strong>2026-06-03</strong> carries 882 events against a 71/day average for the whole dataset. It is not a platform-wide event: <strong>805 of those rows belong to Metro Collision Centers</strong>, whose typical day is 10 events. Every other account sits in its normal range that day.</p>
+    <p>The rows carry every hallmark of a replayed load: a contiguous id block (<code>8114–8994</code>), all 15 of the account's sites hit evenly (42–69 rows each), and a realistic business-hours curve. It looks like real data, which is exactly why it is dangerous.</p>
+    <div class="impact"><b>Impact</b>Left in, this single day is 30% of that account's six-month history. It raises their baseline, and — because it lands in the trailing window — it makes the following weeks read as a <em>decline</em>. Exclude or winsorize it before computing any baseline.</div>
+  </div>
+
+  <div class="finding crit">
+    <div class="f-top"><span class="chip crit">Blocker</span><h3>D2 · The timezone column was never applied to timestamps</h3></div>
+    <p>Every timezone group has an almost identical mean hour <em>in UTC</em> (15.3–15.6), but wildly different mean hours in local time (8.7 for Los Angeles, 15.3 for UTC). Timestamps were generated against a single UTC business-hours curve and never shifted per account.</p>
+    <p>The consequence is concrete: <strong>29.6% of Los Angeles accounts' events fall between midnight and 6am local time</strong> — inbound calls to an auto shop at 3am. For New York accounts the same figure is 11.8%.</p>
+    <div class="impact"><b>Impact</b>Any hour-of-day feature — peak hours, after-hours missed calls, staffing heatmaps — is built on sand. Separately, converting UTC to local shifts 1.3% of West Coast events across a date boundary, so "today" tiles will disagree with the customer's own count.</div>
+
+    <h3 style="margin-top:22px">Can a conversion recover the local time?</h3>
+    <p>No — and it is worth being precise about why, because the conversion looks like it should work. Two tests rule it out.</p>
+    <p><strong>There is no DST fingerprint.</strong> US daylight saving began on 2026-03-08, inside the window. Had these timestamps been generated in a real US local zone and converted to UTC, the UTC curve would jump forward one hour on that date. It does not move: mean UTC hour is <strong>16.10</strong> before and <strong>15.95</strong> after — a 0.15h drift in the wrong direction.</p>
+    <p><strong>There is no offset between zones.</strong> If the timezone had been applied at write time, New York and Los Angeles accounts would sit three hours apart in UTC. The observed spread across all six zones is <strong>0.27 hours</strong> against an expected 3.00.</p>
+    <p>The giveaway is which accounts fail a plausibility check. Running the conversion and asking how much overnight (01:00–05:00 local) volume each zone carries:</p>
+
+    <div class="tscroll" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Account timezone</th><th class="n">Mean local hour</th><th class="n">Overnight 01–05</th><th class="n">Business 08–18</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>America/Los_Angeles</td><td class="n">8.72</td><td class="n">20.4%</td><td class="n">59.6%</td><td>Fail</td></tr>
+          <tr><td>America/Phoenix</td><td class="n">8.90</td><td class="n">20.1%</td><td class="n">61.3%</td><td>Fail</td></tr>
+          <tr><td>America/Denver</td><td class="n">9.53</td><td class="n">14.8%</td><td class="n">67.4%</td><td>Fail</td></tr>
+          <tr><td>America/Chicago</td><td class="n">10.38</td><td class="n">10.8%</td><td class="n">76.5%</td><td>Fail</td></tr>
+          <tr><td>America/New_York</td><td class="n">11.29</td><td class="n">6.9%</td><td class="n">79.4%</td><td>Fail</td></tr>
+          <tr><td>UTC</td><td class="n">15.31</td><td class="n">0.5%</td><td class="n">76.5%</td><td>Pass</td></tr>
+        </tbody>
+        <caption>Only the UTC account passes — and for a UTC account the conversion is a no-op. Every other zone fails in direct proportion to its distance from UTC. The events carry a UTC-shaped business day that was handed to all 20 accounts.</caption>
+      </table>
+    </div>
+
+    <p style="margin-top:16px">That leaves two honest readings, and they are not equivalent:</p>
+    <div class="tscroll">
+      <table>
+        <thead><tr><th>Reading</th><th>What it assumes</th><th class="n">Overnight</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A · Convert UTC → local</strong></td><td>The stored value really is UTC; the generator ignored timezone</td><td class="n">up to 20.4%</td><td>Faithful to the schema contract, but hour-of-day stays unusable</td></tr>
+          <tr><td><strong>B · Read the stored value as local</strong></td><td>The value is local wall-clock, merely mislabelled as UTC</td><td class="n">0.6%</td><td>Yields a plausible business day (75% in 08–18) — but makes <code>timezone</code> decorative and every account identical, so any cross-region comparison is fabricated</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="impact"><b>Recommendation</b>Ship <strong>A</strong>. It is the only reading that stays correct when real data arrives, and it is implemented as a view in <code>sql/local_time.sql</code>. Use <code>local_date</code> for day and week bucketing — that part is a genuine fix, correcting 1.31% of Los Angeles rows onto the right calendar day. Keep hour-of-day features off the roadmap until the plausibility check passes. Reading B is defensible only as an explicitly labelled demo assumption, never as a silent production default.</div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-top"><span class="chip warn">High</span><h3>D3 · Call duration is random noise, not talk time</h3></div>
+    <p><code>duration_seconds</code> is distributed uniformly between 20 and 1500 seconds — and <strong>identically across every outcome</strong>. Missed calls average 737 seconds. Voicemails average 768. Connected calls average 765.</p>
+    <div class="tscroll" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Call outcome</th><th class="n">Rows</th><th class="n">With duration</th><th class="n">Mean seconds</th></tr></thead>
+        <tbody>
+          <tr><td>connected</td><td class="n">4,669</td><td class="n">4,484</td><td class="n">765</td></tr>
+          <tr><td>missed</td><td class="n">1,937</td><td class="n">1,861</td><td class="n">737</td></tr>
+          <tr><td>voicemail</td><td class="n">934</td><td class="n">888</td><td class="n">768</td></tr>
+        </tbody>
+        <caption>A missed call cannot have twelve minutes of talk time. The field is synthetic and carries no signal.</caption>
+      </table>
+    </div>
+    <div class="impact"><b>Impact</b>"Average call duration" must not ship as a metric. If it appears on the dashboard today, it is showing customers a random number — and one that will look stable, because uniform noise averages out consistently.</div>
+  </div>
+
+  <div class="finding warn">
+    <div class="f-top"><span class="chip warn">High</span><h3>D4 · Duplicate events from replayed ingestion</h3></div>
+    <p>12 pairs of rows are identical on <code>(account_id, location, event_type, occurred_at)</code> including duration and outcome, and each pair sits on consecutive ids. They cluster on shared dates across different accounts — 2026-02-24, 2026-04-29, 2026-06-12 — which points at batch-level replay rather than genuine simultaneous events.</p>
+    <div class="impact"><b>Impact</b>Small in aggregate (0.2%), but it proves ingestion is not idempotent. There is no natural key or unique constraint preventing this, so a larger replay would go unnoticed. Worth a constraint on <code>(account_id, location, event_type, occurred_at)</code>.</div>
+  </div>
+
+  <div class="finding info">
+    <div class="f-top"><span class="chip good">Clean</span><h3>What is sound</h3></div>
+    <p>Referential integrity is intact — no orphans, no duplicate ids, no events before account creation, no future dates. Categorical fields have no casing or whitespace drift. Outcomes are correctly scoped to their event type, with no cross-contamination.</p>
+    <p>Missing values are <strong>missing-at-random</strong>: NULL outcome holds at 2.8–3.6% every month and 3.3–4.4% across accounts, with no clustering that would indicate an outage. The same is true of NULL duration (4.0%). They can safely be excluded from rate denominators rather than imputed.</p>
+    <p>No location feed ever goes dark. All 69 started within the first four days of the window and all report through the final week — the longest silence for any site is five days, consistent with low volume rather than a broken integration.</p>
+  </div>
+</section>
+
+<!-- ============ PATTERNS ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">03</span><h2>Patterns</h2></div>
+  <div class="col">
+    <p class="lede">One very strong seasonal effect, no trend, and a volume floor low enough to govern the entire metric design.</p>
+  </div>
+
+  <figure>
+    <div class="fig-box">
+      <p class="fig-title">Events per day of week · local time · backfill excluded</p>
+      <svg viewBox="0 0 700 210" role="img" aria-label="Bar chart of average events by day of week: Monday 87.9, Tuesday 84.0, Wednesday 79.5, Thursday 83.6, Friday 83.1, Saturday 23.1, Sunday 23.0">
+        <line x1="52" y1="168" x2="684" y2="168" stroke="var(--rule)" stroke-width="1"/>
+        <g>
+          <rect x="62"  y="26"  width="66" height="142" fill="var(--accent)"/>
+          <rect x="152" y="32"  width="66" height="136" fill="var(--accent)"/>
+          <rect x="242" y="39"  width="66" height="129" fill="var(--accent)"/>
+          <rect x="332" y="33"  width="66" height="135" fill="var(--accent)"/>
+          <rect x="422" y="34"  width="66" height="134" fill="var(--accent)"/>
+          <rect x="512" y="131" width="66" height="37"  fill="var(--ink-mute)"/>
+          <rect x="602" y="131" width="66" height="37"  fill="var(--ink-mute)"/>
+        </g>
+        <g class="svg-val" text-anchor="middle">
+          <text x="95"  y="19">87.9</text><text x="185" y="19">84.0</text>
+          <text x="275" y="19">79.5</text><text x="365" y="19">83.6</text>
+          <text x="455" y="19">83.1</text><text x="545" y="124">23.1</text>
+          <text x="635" y="124">23.0</text>
+        </g>
+        <g class="svg-lbl" text-anchor="middle">
+          <text x="95"  y="186">Mon</text><text x="185" y="186">Tue</text>
+          <text x="275" y="186">Wed</text><text x="365" y="186">Thu</text>
+          <text x="455" y="186">Fri</text><text x="545" y="186">Sat</text>
+          <text x="635" y="186">Sun</text>
+        </g>
+        <text x="10" y="203" class="svg-ttl">Weekend volume is 27% of a weekday — a baseline that ignores day-of-week will alarm every Saturday.</text>
+      </svg>
+    </div>
+    <figcaption><b>Note the correction.</b> In the raw data Wednesday appears as an outlier high (2,892 events). That was entirely the 2026-06-03 backfill — once removed, Wednesday is the <em>quietest</em> weekday. A seasonality model fitted on uncleaned data would have learned a spurious midweek peak.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>No trend, but uneven volatility</h3>
+    <p>Monthly totals are flat for every large account across the six months, so there is no growth trend to detrend. Week-to-week volatility, however, differs sharply by account size — the variance-to-mean ratio runs from <strong>0.37</strong> (Gulf Coast Roofing, remarkably steady) to <strong>2.29</strong> (Metro Collision Centers, heavily overdispersed).</p>
+    <p>This matters for alerting: a textbook Poisson band of <code>μ ± 2√μ</code> is too tight for the big accounts and too loose for the small ones. The band needs a per-account dispersion factor.</p>
+
+    <h3 style="margin-top:28px">The volume floor</h3>
+    <p>Every one of the 69 location feeds averages between <strong>0.59 and 1.46 events per day</strong>. Not one exceeds 1.5. At the weekly grain the median location produces 6 events, with a 10th percentile of 3.</p>
+  </div>
+
+  <div class="callout">
+    <p class="fig-title">The governing constraint</p>
+    <p>At roughly one event per location per day, a <strong>daily per-location metric is essentially unmeasurable</strong>. A site averaging 1.0 events/day will show 0 on about 37% of days purely by chance. Any "down vs. yesterday" indicator on a location tile is a random number generator, and a daily z-score is undefined half the time.</p>
+    <p>This is not a flaw in the seed data — it is the real shape of the business. Service locations genuinely receive a handful of calls a day. The product has to be designed around it.</p>
+  </div>
+</section>
+
+<!-- ============ THE TEST ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">04</span><h2>Signal or noise</h2></div>
+  <div class="col">
+    <p class="lede">The support team's request — show which location needs attention — assumes locations meaningfully differ. We tested that assumption rather than taking it on faith.</p>
+    <p>For each candidate metric we compared the <em>observed</em> spread across locations against the spread you would expect if every location were identical and only sampling luck differed, using a chi-square dispersion test on the pooled six months (backfill excluded).</p>
+  </div>
+
+  <div class="tscroll">
+    <table>
+      <thead>
+        <tr><th>Metric</th><th class="n">Units</th><th class="n">Observed range</th><th class="n">Observed SD</th><th class="n">SD if pure noise</th><th class="n">χ²/df</th><th class="n">p</th><th>Verdict</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Missed-call rate</td><td class="n">69 locs</td><td class="n">12.3–37.6%</td><td class="n">4.81pp</td><td class="n">4.47pp</td><td class="n">78.2/68</td><td class="n">0.186</td><td>Noise</td></tr>
+        <tr><td>Lead conversion rate</td><td class="n">69 locs</td><td class="n">14.8–52.9%</td><td class="n">8.27pp</td><td class="n">8.02pp</td><td class="n">77.1/68</td><td class="n">0.211</td><td>Noise</td></tr>
+        <tr><td>Appointment no-show rate</td><td class="n">69 locs</td><td class="n">0–44.4%</td><td class="n">8.29pp</td><td class="n">8.23pp</td><td class="n">78.2/68</td><td class="n">0.186</td><td>Noise</td></tr>
+        <tr><td>Missed-call rate</td><td class="n">19 accts</td><td class="n">18.3–32.4%</td><td class="n">3.43pp</td><td class="n">2.80pp</td><td class="n">29.7/18</td><td class="n">0.040</td><td>Weak signal</td></tr>
+      </tbody>
+      <caption>At the location level, observed spread barely exceeds the noise floor in all three metrics. Only when locations are pooled up to accounts does a marginal real difference emerge.</caption>
+    </table>
+  </div>
+
+  <div class="col">
+    <p>A statistical test is easy to wave away, so here is the same conclusion in operational terms. We split the period in half, ranked all 69 locations by missed-call rate in the first half, and looked up where those same locations landed in the second half.</p>
+  </div>
+
+  <figure>
+    <div class="fig-box">
+      <p class="fig-title">Where the ten "worst" locations went · rank of 69</p>
+      <svg viewBox="0 0 700 330" role="img" aria-label="Slope chart showing the ten worst-ranked locations in the first half scattering to ranks 13 through 67 in the second half">
+        <text x="86" y="22" class="svg-lbl" text-anchor="end">Feb–Apr</text>
+        <text x="614" y="22" class="svg-lbl">May–Jul</text>
+        <line x1="96" y1="32" x2="96" y2="306" stroke="var(--rule)" stroke-width="1"/>
+        <line x1="604" y1="32" x2="604" y2="306" stroke="var(--rule)" stroke-width="1"/>
+
+        <!-- rank1->54 -->
+        <line x1="96" y1="40" x2="604" y2="252" stroke="var(--crit)" stroke-width="1.6" opacity=".85"/>
+        <!-- rank2->66 -->
+        <line x1="96" y1="66" x2="604" y2="299" stroke="var(--crit)" stroke-width="1.6" opacity=".85"/>
+        <!-- rank3->21 -->
+        <line x1="96" y1="92" x2="604" y2="122" stroke="var(--ink-mute)" stroke-width="1.4" opacity=".6"/>
+        <!-- rank4->44 -->
+        <line x1="96" y1="118" x2="604" y2="213" stroke="var(--ink-mute)" stroke-width="1.4" opacity=".6"/>
+        <!-- rank5->51 -->
+        <line x1="96" y1="144" x2="604" y2="240" stroke="var(--ink-mute)" stroke-width="1.4" opacity=".6"/>
+        <!-- rank6->67 -->
+        <line x1="96" y1="170" x2="604" y2="303" stroke="var(--crit)" stroke-width="1.6" opacity=".85"/>
+        <!-- rank7->32 -->
+        <line x1="96" y1="196" x2="604" y2="166" stroke="var(--ink-mute)" stroke-width="1.4" opacity=".6"/>
+        <!-- rank8->36 -->
+        <line x1="96" y1="222" x2="604" y2="182" stroke="var(--ink-mute)" stroke-width="1.4" opacity=".6"/>
+        <!-- rank9->43 -->
+        <line x1="96" y1="248" x2="604" y2="209" stroke="var(--ink-mute)" stroke-width="1.4" opacity=".6"/>
+        <!-- rank10->13 -->
+        <line x1="96" y1="274" x2="604" y2="90" stroke="var(--good)" stroke-width="1.6" opacity=".85"/>
+
+        <g fill="var(--accent)">
+          <circle cx="96" cy="40" r="3.5"/><circle cx="96" cy="66" r="3.5"/><circle cx="96" cy="92" r="3.5"/>
+          <circle cx="96" cy="118" r="3.5"/><circle cx="96" cy="144" r="3.5"/><circle cx="96" cy="170" r="3.5"/>
+          <circle cx="96" cy="196" r="3.5"/><circle cx="96" cy="222" r="3.5"/><circle cx="96" cy="248" r="3.5"/>
+          <circle cx="96" cy="274" r="3.5"/>
+        </g>
+        <g fill="var(--ink-mute)">
+          <circle cx="604" cy="252" r="3.5"/><circle cx="604" cy="299" r="3.5"/><circle cx="604" cy="122" r="3.5"/>
+          <circle cx="604" cy="213" r="3.5"/><circle cx="604" cy="240" r="3.5"/><circle cx="604" cy="303" r="3.5"/>
+          <circle cx="604" cy="166" r="3.5"/><circle cx="604" cy="182" r="3.5"/><circle cx="604" cy="209" r="3.5"/>
+          <circle cx="604" cy="90"  r="3.5"/>
+        </g>
+
+        <g class="svg-lbl" text-anchor="end">
+          <text x="86" y="44">#1</text><text x="86" y="70">#2</text><text x="86" y="96">#3</text>
+          <text x="86" y="122">#4</text><text x="86" y="148">#5</text><text x="86" y="174">#6</text>
+          <text x="86" y="200">#7</text><text x="86" y="226">#8</text><text x="86" y="252">#9</text>
+          <text x="86" y="278">#10</text>
+        </g>
+        <g class="svg-lbl">
+          <text x="614" y="256">#54 &nbsp;Capital City Storage · Site E</text>
+          <text x="614" y="303">#66 &nbsp;Metro Collision · Site B</text>
+          <text x="614" y="126">#21 &nbsp;Pacific Smiles · Site A</text>
+          <text x="614" y="217">#44 &nbsp;Redline Tire · Site D</text>
+          <text x="614" y="244">#51 &nbsp;Cornerstone Vet · Site D</text>
+          <text x="614" y="307">#67 &nbsp;Riverbend Chiro · Site A</text>
+          <text x="614" y="170">#32 &nbsp;Old Town Barbers · Site A</text>
+          <text x="614" y="186">#36 &nbsp;Metro Collision · Site O</text>
+          <text x="614" y="213">#43 &nbsp;Beacon Home Sec · Site C</text>
+          <text x="614" y="94">#13 &nbsp;Sierra Pest · Site C</text>
+        </g>
+        <text x="10" y="324" class="svg-ttl">Correlation between the two halves: r = 0.057. The worst location became the 54th worst.</text>
+      </svg>
+    </div>
+    <figcaption>The location with the highest missed-call rate in February–April (37.8%) fell to 20.5% and rank 54 of 69. The second-worst dropped to rank 66. This is textbook regression to the mean — <b>the ranking carries no predictive information at all</b>, so acting on it wastes account-manager time and erodes trust when the "problem" resolves itself.</figcaption>
+  </figure>
+
+  <div class="col">
+    <h3>What survives a rigorous test</h3>
+    <p>Applying empirical-Bayes shrinkage toward each account's own pooled rate, plus Wilson confidence intervals, to all 69 locations across the full six months produces exactly <strong>one</strong> location flagged above its account average. Across 69 simultaneous tests at α = 0.05 you would expect around 3 false positives by chance — so even that single alert is more likely luck than substance.</p>
+    <p>The honest conclusion: <em>six months of data is not enough to rank a location on outcome rates.</em> A naive top-N view would have confidently listed twelve.</p>
+
+    <h3 style="margin-top:28px">What does hold up</h3>
+    <p>Volume is a different story. The half-over-half correlation of location volume is <strong>0.81</strong> — big sites stay big, quiet sites stay quiet. Volume is a real, stable property, which makes <em>changes</em> in it genuinely informative.</p>
+  </div>
+</section>
+
+<!-- ============ RECOMMENDATIONS ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">05</span><h2>How to build "normal"</h2></div>
+  <div class="col">
+    <p class="lede">A metric design that follows from the constraints above, rather than from what is easiest to query.</p>
+  </div>
+
+  <ol class="recs">
+    <li>
+      <div>
+        <h3>Compare an account against its own history, not against other accounts</h3>
+        <p>"Is this number normal for us?" is a within-account question, and it is answerable. Industries mix very different business models and the peer groups here would be 2–5 accounts wide — too small to define a norm. Each account's own trailing history is both more relevant and more statistically sound.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Put location metrics on a weekly or 28-day grain — never daily</h3>
+        <p>At ~1 event/day a daily location figure is noise. A trailing 28-day window gives a typical location ~30 events, which is the minimum for a stable rate. Show the daily number as a raw count if customers want it, but never attach a comparison, arrow, or alert to it.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Make the baseline day-of-week aware</h3>
+        <p>Weekends run at 27% of weekday volume. Compare like with like — Monday against recent Mondays, or use full Monday-to-Sunday weeks. Complete weeks only: the final partial week in this dataset is a single day, and a naive trailing window flags <em>every one of the 19 accounts</em> as critically low because of it.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Express "normal" as a band, and let the band be wide</h3>
+        <p>Use a quasi-Poisson interval with a per-account dispersion factor <code>φ</code> estimated from its own weekly history — <code>μ ± 2√(φμ)</code> — since φ ranges from 0.37 to 2.29 across accounts. Showing customers the band itself ("typical week: 33–60 calls") answers the question more honestly than a single number with a percentage arrow.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Rank locations by significance, not by rate</h3>
+        <p>If a location leaderboard must exist, sort by how far a site sits outside its confidence interval, and show the interval. Locations whose interval overlaps the account average should read as "within normal range" — which, in this dataset, is 68 of 69 of them. An empty alert list is a correct answer, and far better than ten fabricated ones.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Prefer volume-change alerts over rate rankings</h3>
+        <p>Volume persists (r = 0.81) where rates do not (r = 0.06). "This location's calls dropped 40% versus its own eight-week baseline" is defensible; "this location has the worst missed-call rate" is not. Applied at the account-week level on cleaned data, this produced 14 alerts across 361 eligible account-weeks — about 4%, an actionable rate. The per-account dispersion factor matters here: a plain Poisson band gives 18.</p>
+      </div>
+    </li>
+    <li>
+      <div>
+        <h3>Fix ingestion before ingesting more</h3>
+        <p>Add a uniqueness constraint on <code>(account_id, location, event_type, occurred_at)</code>, apply the account timezone at write time or store a proper <code>timestamptz</code>, and add a <code>locations</code> dimension so a site's open date and closure can be recorded. Without the last one you cannot distinguish "location closed" from "integration broke."</p>
+      </div>
+    </li>
+  </ol>
+
+  <h3 style="margin-top:36px">The baseline query, in outline</h3>
+  <pre><code>WITH clean AS (
+  SELECT DISTINCT ON (account_id, location, event_type, occurred_at) *   -- D4: dedupe
+  FROM   activity_events
+  WHERE  occurred_at::date &lt;&gt; DATE '2026-06-03'                          -- D1: drop backfill
+  ORDER  BY account_id, location, event_type, occurred_at, id
+),
+wk AS (
+  SELECT account_id,
+         date_trunc('week', occurred_at)::date AS week,
+         count(*) AS n
+  FROM   clean
+  WHERE  occurred_at &gt;= DATE '2026-02-02'      -- complete weeks only,
+    AND  occurred_at &lt;  DATE '2026-07-27'      -- both ends
+  GROUP  BY 1, 2
+),
+base AS (
+  SELECT account_id, week, n,
+         avg(n)      OVER w AS mu,
+         var_samp(n) OVER w AS v,
+         count(*)    OVER w AS hist
+  FROM   wk
+  WINDOW w AS (PARTITION BY account_id ORDER BY week
+               ROWS BETWEEN 8 PRECEDING AND 1 PRECEDING)
+)
+SELECT account_id, week, n AS actual, round(mu, 1) AS expected,
+       round(mu - 2 * sqrt(greatest(v / nullif(mu, 0), 1) * mu)) AS lo,
+       round(mu + 2 * sqrt(greatest(v / nullif(mu, 0), 1) * mu)) AS hi
+FROM   base
+WHERE  hist &gt;= 6;   -- no verdict until there is enough history</code></pre>
+  <p class="tnote">Dispersion is floored at 1 so the band never becomes tighter than Poisson for the steady accounts.</p>
+</section>
+
+<!-- ============ CAVEATS ============ -->
+<section>
+  <div class="sec-head"><span class="sec-num">06</span><h2>Caveats</h2></div>
+  <div class="col">
+    <ul class="plain">
+      <li>This is seeded demo data. The statistical conclusions describe <em>this</em> dataset — real production data may well contain genuine location differences that six months of synthetic data does not. The method for deciding, however, transfers directly.</li>
+      <li>Because outcome rates here are indistinguishable from noise, we cannot confirm the dashboard would find nothing in production. We can confirm that a naive ranking would produce confident output regardless of whether signal exists, which is the more dangerous failure.</li>
+      <li>The chi-square dispersion test assumes independence between events at a location. Genuine clustering — a phone system failing for an afternoon — would inflate χ² without indicating a persistent difference. The half-over-half persistence check is included precisely because it does not rely on that assumption, and it agrees.</li>
+      <li>The 2026-06-03 backfill is treated as an artifact. If it turns out to represent real activity, the exclusion is wrong — but the account's own surrounding weeks argue strongly against it.</li>
+      <li>No location closes or opens mid-window, so the analysis says nothing about how the system behaves during site churn. That case needs the <code>locations</code> dimension before it can be handled at all.</li>
+    </ul>
+  </div>
+</section>
+
+<footer class="end">
+  <p>Prepared against <code>relay_takehome</code> · 20 accounts · 12,626 activity events · 2026-02-01 to 2026-07-27.</p>
+  <p>All figures reproducible from the queries in this document. Seed data left unmodified.</p>
+</footer>
+
+</div>
+</body>
+</html>

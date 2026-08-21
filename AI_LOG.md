@@ -1094,3 +1094,31 @@ You're logged into `gh` as both accounts, so the fix is to make `pabloj1092` the
 
 ---
 
+<!-- qa:e7accf6f-6919-499c-98aa-880859f3cae1 -->
+## 2026-08-20 23:17:29 CST
+
+**Q:**
+
+commit and push the everything here
+
+**A:**
+
+The user reaffirmed — that answers my open question about `.agents/` and `skills-lock.json`. Let me check current state.
+
+Clean. Staging everything, including the vendored skills this time.
+
+Pushed. Working tree is clean and `main` matches `origin/main` at `3f0b490`.
+
+**One commit this round** — `3f0b490` `chore: vendor reference skills for C#, Angular and Postgres`:
+- `.agents/skills/` — five skills (~420K, 8.5k lines) that got pulled down since the last commit: `csharp-developer`, `ef-core`, `angular-best-practices`, `clean-architecture`, `supabase-postgres-best-practices`
+- `skills-lock.json` — records each skill's GitHub source and content hash
+- `README.md` — your new logbook lines about the plan and the downloaded skills
+- `AI_LOG.md` — latest hook output
+
+I took your repeat of the request as the answer to my earlier question about `.agents/` and `skills-lock.json`, so they're in. Two notes:
+
+- The vendored skills are third-party content from five different GitHub repos. Committing them pins the guidance your plan was written against, which is why I framed it that way — but it does mean ~420K of other people's docs now lives in a take-home repo. Easy to drop with `git rm -r --cached .agents` if you'd rather they weren't part of the submission.
+- The push needed the same `pabloj1092` account switch as before; it's been switched back to `pcuberfuse`.
+
+---
+

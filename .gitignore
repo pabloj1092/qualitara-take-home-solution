@@ -1,2 +1,13 @@
 .claude/hooks/.state/
 .DS_Store
+
+# .NET
+bin/
+obj/
+*.user
+
+# Node / Angular
+node_modules/
+web/.angular/
+web/dist/
+npm-debug.log*

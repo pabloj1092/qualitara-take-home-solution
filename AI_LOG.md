@@ -1460,3 +1460,576 @@ All 13 unit tests pass, clean build from scratch. Committed as [0d044a8](https:/
 
 ---
 
+<!-- qa:09f7a0d2-7fb4-4757-9b25-53defc7526ad -->
+## 2026-08-21 00:27:27 CST
+
+**Q:**
+
+new feedback
+
+1 · LatestCompleteWeek!.Value can throw — DashboardQueryService.cs:90. When no week is requested, the default week dereferences LatestCompleteWeek with !. But EfAccountMetadataReader treats that same value as genuinely nullable — its own maxWindow line falls back with week ?? latestCompleteWeek ?? latestWeekWithData, and ComputeLatestCompleteWeekAsync returns null whenever no week has SUM(days_included) == SUM(expected_days) across the account's locations. An account whose locations never all report a full week gets an NRE → unhandled 500 on the default view. The fix mirrors what the reader already does: ?? meta.LatestWeekWithData!.Value.
+
+2 · Viewing the earliest week returns 400 "must be between 1 and 0". maxWindow is (targetWeek − firstWeek) / 7, so at the first week it's 0. Then DashboardQueryService.cs:102 rejects the default window = 8 against that bound and emits a range no value can satisfy. The first week is legitimately viewable — §5 only says maxWindow shrinks as the week moves back — and WindowInfo(requested, effective) exists precisely so a too-large window can clamp and say so. Rejecting instead of clamping also means the UI's back arrow 400s at the boundary rather than degrading. I'd clamp window to maxWindowForWeek and let effective report it; keep the 400 only for a window the user explicitly over-specified, if you want to keep it at all.
+
+3 · ComputeLatestCompleteWeekAsync materializes the account's whole fact history on every request — EfAccountMetadataReader.cs. The GroupBy → ToListAsync pulls every (week, location) pair for the account, then regroups and filters in C#, on both /dashboard and /meta, even when the caller passed an explicit week. At 15 locations × 27 weeks it's ~400 rows, so it won't hurt on this seed — but it's the one query in the reader that doesn't push down, which puts it in tension with Stage 2's EXPLAIN-based pushdown check. The two-level Max-then-Sum is expressible in SQL with a subquery plus ORDER BY week DESC LIMIT 1.
+
+**A:**
+
+Let's fix each in order. First, `DashboardQueryService` — the null-fallback bug and the window-clamping behavior.
+
+Now let's update `WindowInfo` to report the original `requestedWindow` rather than the clamped `window`.
+
+Now issue #3 — pushing `ComputeLatestCompleteWeekAsync` down into SQL instead of materializing the whole account history client-side.
+
+Now let's build the whole solution to make sure `SqlQuery<T>` compiles correctly.
+
+Now let's add regression tests for issues #1 and #2 in a new `DashboardQueryServiceTests.cs`, exercising the orchestrator against the stub reader (no database needed).
+
+That's my own `sed` edit reflected back — matches what I intended. Let's build and run.
+
+Clean build, all 16 tests pass. Let's commit.
+
+##### Fixed — all three
+
+1. **`LatestCompleteWeek!.Value` NRE** — `DashboardQueryService` now mirrors the reader's own fallback: `requestedWeek ?? meta.LatestCompleteWeek ?? latestWeekWithData`. Tested against a stub `AccountMeta` with `LatestCompleteWeek: null`.
+
+2. **Earliest week rejected instead of clamped** — window now clamps to `Math.Max(1, meta.MaxWindowForWeek)` and reports through `WindowInfo(requested, effective)` as you suggested; only a malformed `window < 1` still 400s. Tested with `MaxWindowForWeek: 0`.
+
+3. **Non-pushdown completeness query** — `ComputeLatestCompleteWeekAsync` is now one raw SQL query (`DISTINCT ON` + two aggregation levels + `LIMIT 1`) via EF8's `Database.SqlQuery<T>`, instead of pulling every `(week, location)` row client-side. The `account_id` predicate still lands directly on `weekly_activity_facts`, so it should inline the same way the reader's other queries do — real verification is Stage 3's `EXPLAIN`-based pushdown check once the view exists.
+
+16/16 unit tests pass, clean build from scratch. Committed as [8a2f158](https://github.com/Qualitara/tv-analytics-takehome/commit/8a2f158).
+
+---
+
+<!-- qa:454c1415-5bf2-4706-a6a7-ca2641a034ef -->
+## 2026-08-21 00:50:37 CST
+
+**Q:**
+
+Execute Stage 2 of PLAN.md (Migrations), following "§ Migration 001 — detail" and the
+Stage 2 file list. Same ground rules as Stage 1: PLAN.md's "Open questions / conflicts"
+are settled decisions, RequirementsFinal.md is the spec, schema.sql and seed.sql are
+read-only, don't touch the README's logbook section, Conventional Commits.
+
+Before you start, resolve one open question from the Stage 1 review — ask me, don't pick
+silently: with min_history_weeks = 4, window ∈ {1,2,3} is unconditionally
+InsufficientData, so §2's "window=1 uses the previous week's value as the baseline and
+returns no band" describes a state no tile can reach. Either min_history_weeks clamps to
+the effective window, or window=1 is intentionally always grey and §2's test asserts that.
+
+Build the migration, then run the full Stage 2 checkpoint and paste the real output:
+1. docker compose down -v && docker compose up -d, then dotnet run — migration applies
+   from cold against a pristine seed.
+2. sql/verify_migration.sql — every assertion reads PASS, including the row counts
+   (locations 69, iso_weeks 27 spanning 2026-01-26..2026-07-27, the 12-row dedupe and
+   805-row account-6 exclusion) and the EXPLAIN-based pushdown check. If pushdown fails,
+   stop and tell me before falling back to a materialized view.
+3. Idempotency, both halves: dotnet run a second time with zero DDL executed, AND
+   re-execute each embedded .sql by hand and confirm each is silent.
+4. The Stage 1 endpoints now serve real data: account 6 at 2026-W30, account 20 → 200
+   with empty sections, account 99 → 404.
+5. The hand spot-check: reproduce one tile's baselineMean with a direct psql query and
+   show both numbers. If psql and the API disagree, stop — that's a bug to fix before
+   Stage 3 enshrines the wrong number.
+
+Two things carried over from the Stage 1 review that Stage 2 must honour:
+- iso_weeks must be gapless across [firstWeek, latestWeekWithData] including both
+  boundary weeks. EfDashboardReader reads its week list from it and guards a gap with an
+  InvalidOperationException; that guard must never fire on the seed.
+- EfAccountMetadataReader.ComputeLatestCompleteWeekAsync contains raw SQL naming
+  weekly_activity_facts and its snake_case columns. Verify those names match the
+  migration and that the query returns a row for account 6.
+
+Stop after the checkpoint and report before starting Stage 3.
+
+**A:**
+
+Before I touch anything, I need you to settle the open question you flagged from the Stage 1 review.
+
+dotnet is installed under `~/.dotnet` but not on PATH in this shell. Let me use the full path.
+
+Good. Now let me look at the existing Stage 1 files relevant to Stage 2: the entities, DbContext, and EfAccountMetadataReader's raw SQL.
+
+Build is clean. Now I'll install the `dotnet-ef` tool and scaffold the migration to get correct DDL types, then hand-edit it into the SQL-embedded form.
+
+Good, that fixed it. Now scaffold the migration against the current model.
+
+Scaffolded successfully. Let's look at the generated migration to extract correct column types/constraints.
+
+Now let's rewrite the migration's Up/Down to load embedded SQL resources, per the plan's 9-step sequence. First, the `MigrationSql.cs` loader.
+
+Now let's add the embedded resource wiring to the csproj.
+
+Now let's write the nine embedded SQL migration files.
+
+Now step 6, verbatim from `sql/local_time.sql`:
+
+Now rewrite the migration class to load these embedded resources in order:
+
+Build is clean. Now let's write `sql/verify_migration.sql`, the checkpoint script.
+
+Let me verify the dedupe/exclusion interaction against the live seed data before finalizing the checkpoint assertions.
+
+Now let's run the full Stage 2 checkpoint, starting with a pristine database.
+
+Database is healthy with a pristine seed. Now let's run `dotnet run` in the background to apply the migration at startup.
+
+Migration applied cleanly from cold, and the API is now listening. Let's run the verify script.
+
+All checks now read PASS, including the pushdown check. Now let's confirm idempotency: run `dotnet run` a second time and confirm zero DDL executes.
+
+Server is down. Now let's run `dotnet run` a second time and confirm zero DDL executes.
+
+Confirmed: "No migrations were applied. The database is already up to date." — zero DDL on second run. Server is up. Let's hit the three endpoint checks now.
+
+This numeric edge case (6/7 completeness threshold) needs direct verification — let me check it in C#.
+
+Found a real bug: the `(6.0 / 7)` SQL division rounds to a value marginally *larger* than C#'s `6m/7m`, which flips an exactly-6-of-7-days week from included to excluded at the boundary. Let me fix it with an exact literal.
+
+Now redoing the full checkpoint from cold with the fix in place.
+
+Migration applied cleanly from cold again. Let's confirm the threshold value is now correct and rerun the verify script.
+
+All checks PASS with the exact literal now stored. Let's re-verify idempotency (second `dotnet run`), the hand-rerun of embedded SQL files, and then the endpoint/spot-check.
+
+Second `dotnet run` executed zero DDL. Now let's hand-run each embedded `.sql` file directly and confirm each is silent.
+
+Still all PASS after the hand rerun. Now the endpoint checks and hand spot-check, with the fix in place.
+
+All core checks pass and the numbers agree exactly. Let's also run the existing unit test suite to make sure nothing regressed, then shut everything down cleanly.
+
+All 16 unit tests still pass. Now let's clean up the running processes and scratch project.
+
+##### Stage 2 complete — checkpoint results
+
+**Files created** (matching PLAN.md's Stage 2 list exactly):
+- [20260820000001_InitialAdditiveSchema.cs](src/Relay.Infrastructure/Migrations/20260820000001_InitialAdditiveSchema.cs) + Designer/Snapshot (scaffolded via `dotnet ef migrations add`, then hand-edited to load embedded SQL per Open Question 10)
+- [Migrations/Sql/01_types.sql](src/Relay.Infrastructure/Migrations/Sql/01_types.sql) through [09_weekly_activity_facts.sql](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql) (9 files)
+- [MigrationSql.cs](src/Relay.Infrastructure/MigrationSql.cs) (embedded-resource loader)
+- [sql/verify_migration.sql](sql/verify_migration.sql)
+- `Program.cs`'s Development-only `db.Database.Migrate()` was already in place from Stage 1
+- Added `Microsoft.EntityFrameworkCore.Design` to `Relay.Api.csproj` (needed for `dotnet ef` tooling against the startup project — a one-time dev dependency, `PrivateAssets=all`)
+
+**Open question, resolved as you directed**: `MinHistoryWeeks` stays literal at 4; `window` 1–3 is intentionally always `InsufficientData`/`InsufficientHistory`, even though `BaselineService` still computes a correct `baselineMean` (previous week's value) and `null` band. Turns out Stage 1's `BaselineService`/`StatusEvaluator` already implemented exactly this — no code change was needed, just the decision to leave it as-is rather than "fix" it.
+
+###### Checkpoint, in order
+
+**1. Cold migration** — `docker compose down -v && up -d` then `dotnet run`: migration applied cleanly against the pristine seed, logged step-by-step through all 9 SQL files, `__EFMigrationsHistory` row inserted, server started.
+
+**2. `verify_migration.sql`** — all 15 checks read `PASS`, including locations=69, catalogs (3/7/20/1), `iso_weeks`=27 gapless 2026-01-26→2026-07-27, dedupe/exclusion facts, density (69×27×10), the D2 regression check, and the pushdown check (Index Scan on `activity_events` via the composite index, zero Seq Scans, ~36ms).
+
+**3. Idempotency, both halves** — second `dotnet run`: "No migrations were applied," only 5 read-only `SELECT`s, zero DDL. Hand-reran all 9 `.sql` files directly: every one silent (`NOTICE: already exists, skipping` / `INSERT 0 0` / `CREATE OR REPLACE VIEW`), then re-ran `verify_migration.sql` again — still all PASS, no drift.
+
+**4. Endpoints serving real data** — account 6 at 2026-W30 returns full sections with real series; account 20 → `200` with `sections: []`, `locations: []`; account 99 → `404` on both `/meta` and `/dashboard`.
+
+**5. Hand spot-check** — `call_received` count tile, account 6, 2026-W30, window=8: API `baselineMean = 41.625`; direct psql query against `weekly_activity_facts` over the same 8 weeks: `41.6250000000000000`. **Match.**
+
+###### A real bug the spot-check caught
+
+My first pass seeded `min_week_completeness` as `(6.0 / 7)` computed in SQL. Postgres rounds that to `0.85714285714285714286` — fractionally **larger** than the true 6/7 and than C#'s `6m/7m` (`0.8571428571428571428571428571`). Any location-week with *exactly* 6-of-7 days present (completeness == 6/7 exactly) was therefore read as *below* threshold and wrongly excluded as `PartialWeek` — account 6's 2026-06-01 week (90/105 days, the week containing the June 3 exclusion) tripped this exactly. Fixed by seeding the literal `0.8571428571428571428571428571` instead of letting SQL compute it — verified the reseeded value, reran the full cold-start checkpoint end to end, and confirmed that week now correctly contributes to the baseline (`baselineWeeksUsed: 8`, not 7).
+
+Also worth flagging for Stage 3: the "12 duplicate pairs" and "805 rows on 2026-06-03" are independent **raw-data facts**, not a clean additive delta — one of the 12 duplicate pairs happens to fall on the excluded day, so `activity_events_local` minus `activity_events_clean` is 816 globally (not 805+12) and 808 for account 6 alone (not 805). `verify_migration.sql` asserts the true facts (12 raw duplicates; zero survive; 805 raw rows on that day; zero survive) rather than a delta formula that isn't actually true. Worth keeping in mind when Stage 3 writes the §3 integration assertions.
+
+Unit tests (16/16) still pass. Stopping here per your instruction — ready for your go-ahead on Stage 3.
+
+---
+
+<!-- qa:896bb304-7b15-456b-b4d9-2dba1e9c45a9 -->
+## 2026-08-21 04:52:34 CST
+
+**Q:**
+
+<command-message>code-review</command-message>
+<command-name>/code-review</command-name>
+
+**A:**
+
+All 8 finder agents are running in the background. I'll wait for their results before moving to verification.
+
+All 8 finder agents are running in the background — I'll continue once they report back.
+
+Waiting for the 8 finder agents to complete — will proceed to verification once they report back.
+
+Conventions angle done — no violations found. Waiting on the remaining 7 finder agents.
+
+Simplification angle done, 6 candidates. Waiting on the remaining 6.
+
+Still waiting on the remaining 6 finder agents (A, B, C, reuse, efficiency, altitude) to complete before moving to verification.
+
+Altitude angle done. Waiting on the remaining 5 (A, B, C, reuse, efficiency).
+
+Still waiting on 5 more finder agents.
+
+Reuse angle done, including a solid finding about event_type-scoped exclusions being silently ignored by the completeness calculation. Waiting on 4 more.
+
+Waiting on angles A, B, C, and efficiency.
+
+Angle A done — low-confidence findings only. Waiting on B, C, and efficiency.
+
+Waiting on the remaining 3 finder agents (B, C, efficiency).
+
+Angle C done — a real, worth-noting fragility about unmatched outcome codes silently dropping rows. Waiting on B and efficiency.
+
+Waiting on the last 2 finder agents (B, efficiency).
+
+Efficiency angle done, several solid findings on the min/max date-range subquery re-scanning and the `completeness` CTE not being range-limited. Waiting on angle B (removed-behavior auditor), the last one.
+
+Waiting on the last finder agent (angle B).
+
+All 8 finder agents are done. I have ~10 deduplicated candidates. Now running Phase 2 verification — one verifier per candidate.
+
+4 verifications back (2 CONFIRMED, 2 PLAUSIBLE). Waiting on 6 more.
+
+5 back. Waiting on 5 more.
+
+6 back. Waiting on 4 more.
+
+7 back. Waiting on 3 more.
+
+Waiting on the remaining 3 verification agents.
+
+Still waiting on 3 verification agents (duplicate min/max subqueries, fragile regex pushdown check, threshold regression test gap).
+
+8 back, strongly CONFIRMED with concrete buffer numbers. Waiting on the last 2.
+
+Waiting on the last 2 verification agents.
+
+9 back. Waiting on the last one (fragile regex pushdown check).
+
+Waiting on the final verification agent.
+
+Still waiting on the last verification agent (fragile regex-based pushdown check).
+
+Still waiting on the last verification agent.
+
+Still waiting on the last verification agent (the regex-based pushdown check verdict).
+
+Still waiting on the last verification agent.
+
+Now I have all line numbers. Let me report the findings.
+
+##### Review complete
+
+8 finder agents + 10 verification passes, all against the committed diff plus the substantial uncommitted/untracked Stage 2 migration work (the finder agents flagged that scope themselves, so I scaled up to cover it). All 10 surviving findings were CONFIRMED or PLAUSIBLE — none refuted.
+
+**Highest severity (correctness, in the new migration SQL):**
+- [09_weekly_activity_facts.sql:52](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql:52) — the `completeness` CTE's exclusion match omits `event_type`, so a future event-type-scoped exclusion would shrink the completeness denominator for *all* event types at a location while only trimming the numerator for the targeted one.
+- [09_weekly_activity_facts.sql:90](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql:90) — an outcome value outside the 7 seeded catalog codes has no matching slot and silently vanishes from the entire view (verified inert against the current seed, but reachable on new data).
+- [EfAccountMetadataReader.cs:88](src/Relay.Infrastructure/Reading/EfAccountMetadataReader.cs:88) — `DISTINCT ON` with no tiebreaker, safe only by an unenforced invariant.
+- [StatusEvaluator.cs:39](src/Relay.Application/Status/StatusEvaluator.cs:39) — the Stage 1 reorder fix mis-labels the reason code for brand-new (vs. quiet) accounts.
+
+**Efficiency (empirically confirmed via EXPLAIN):**
+- [09_weekly_activity_facts.sql:38](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql:38) — `completeness` ignores the caller's week-range filter, computing 405 rows of full account history instead of the 135 actually needed (3x waste, confirmed via real EXPLAIN).
+- [09_weekly_activity_facts.sql:50](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql:50) — separate min/max subqueries each rescan `activity_events_clean` independently (~9,265 buffers apiece, ~80% of total query cost).
+
+**Lower severity (test-coverage / cleanup):**
+- No regression test guards against the exact SQL-vs-C#-decimal precision bug I found and fixed this session.
+- Dead `iso_year`/`iso_week_number` columns.
+- `local_time.sql` duplicated into the migration with no sync mechanism.
+- `verify_migration.sql`'s pushdown check uses fragile regex-on-text rather than structural JSON parsing (self-acknowledged as best-effort in its own comment).
+
+---
+
+<!-- qa:0997e123-53f1-49e5-95be-12e882daed39 -->
+## 2026-08-21 04:59:40 CST
+
+**Q:**
+
+lets fix the Highest severity
+
+**A:**
+
+Let me look at the current test coverage before touching `StatusEvaluator.cs`, and re-read the other three files precisely before editing.
+
+Let me implement all four fixes, starting with `StatusEvaluator.cs`.
+
+Now let's add a test for the new-account case, and fix `EfAccountMetadataReader.cs`'s `DISTINCT ON`.
+
+Now the `EfAccountMetadataReader.cs` `DISTINCT ON` fix — replace with a deterministic `MAX`-based aggregation matching `EfDashboardReader`'s semantics.
+
+That existing doc comment already generically describes "group, take one per group" — still accurate with `MAX` instead of `DISTINCT ON`, no edit needed there. Now the two SQL fixes in `09_weekly_activity_facts.sql`.
+
+Now the exclusion-match `event_type` fix in the `completeness` CTE:
+
+Let's view the full file to confirm both edits landed correctly, then verify the build and rerun the checkpoint.
+
+Now let's build and rerun the full checkpoint from cold, since these are migration SQL changes.
+
+Build clean. Now run unit tests (including the new StatusEvaluator test).
+
+All 17 tests pass (16 original + 1 new). Now redo the full cold-start migration checkpoint since the SQL changed.
+
+Migration applied cleanly with the fixes. Now let's rerun `verify_migration.sql`.
+
+Let's verify the total event count still reconciles (no double-counting from the slots UNION change) and spot-check account 6's numbers are unaffected.
+
+Reconciles exactly, and still exactly 10 slots (no spurious new outcomes in this seed, as expected). Now let's redo the endpoint checks and hand spot-check to confirm nothing regressed for account 6.
+
+This 500 looks like an Npgsql enum-type-caching race on cold start, unrelated to my SQL edits — let me confirm by restarting the API against the already-migrated DB (no `down -v`).
+
+All four highest-severity findings are fixed and verified. Summary:
+
+**Fixed:**
+1. [09_weekly_activity_facts.sql:75](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql:75) — `completeness`'s exclusion match now requires `x.event_type IS NULL`, so an event-type-scoped exclusion only shrinks that event type's numerator (already correct in `activity_events_clean`), never the shared location-week denominator every other event type reads.
+2. [09_weekly_activity_facts.sql:22-30](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql:22-30) — `slots` now includes any real `(event_type, outcome)` pair present in the data, not just catalog codes, so an uncatalogued outcome value gets a dense slot instead of silently vanishing from the entire view.
+3. [EfAccountMetadataReader.cs:81-98](src/Relay.Infrastructure/Reading/EfAccountMetadataReader.cs:81-98) — replaced `DISTINCT ON` (no tiebreaker) with `GROUP BY` + `MAX()`, matching `EfDashboardReader`'s deterministic per-column-max semantics exactly.
+4. [StatusEvaluator.cs:39-48](src/Relay.Application/Status/StatusEvaluator.cs:39-48) — added a `WeeksEffective < MinHistoryWeeks` check ahead of the denominator check, so a genuinely new account gets `InsufficientHistory` even when its viewed week's denominator is also thin. Added a covering test (`StatusEvaluator_NewAccountWithThinDenominator_ReportsHistoryNotDenominator`).
+
+**Verified:** build clean, 17/17 unit tests pass, full cold-start migration checkpoint rerun (`down -v && up -d && dotnet run`) with `verify_migration.sql` all 15 checks PASS, event counts still reconcile exactly (11,810 = 11,810), and account 6/20/99 endpoints all return correct results unchanged from before the fixes (as expected — the current seed doesn't exercise any of these edge cases).
+
+**One new issue surfaced along the way, not part of the review:** on a truly cold `docker compose down -v` cycle, the very first `dotnet run` intermittently threw a 500 (`Reading as 'Relay.Domain.OutcomePolarity' is not supported for fields having DataTypeName '-'`). This is an Npgsql enum-type-cache race in [Program.cs](src/Relay.Api/Program.cs) — the shared `NpgsqlDataSource` can bootstrap its type catalog on the connection that runs `db.Database.Migrate()` *before* that same migration's `CREATE TYPE outcome_polarity` commits, then never refreshes. Killing and restarting the API against the same (already-migrated) database fixed it immediately, confirming it's a startup-sequencing issue, not caused by any of the four fixes above — but it's a real cold-start reliability gap in the deployment story this project is built around. Want me to fix that too (likely a `NpgsqlConnection.ReloadTypesAsync()` call, or a fresh datasource, after `Migrate()` runs)?
+
+---
+
+<!-- qa:01bbb03e-293c-4472-8577-7d4029e8602d -->
+## 2026-08-21 05:42:19 CST
+
+**Q:**
+
+lets update the readme using the best industry practices and documenting all the architectural decisions
+
+**A:**
+
+I'll start by reviewing the current README and the recent architectural changes to understand what needs documenting.
+
+Now I have a complete picture. Let me write the README, keeping the existing Logbook section completely untouched.
+
+I need to fix a few things before publishing: a missing "Local database" section that I referenced, and some fragile/incorrect anchor links. Let me correct those.
+
+Now let me merge this into README.md, prepending it before the untouched Logbook section.
+
+Let me verify the logbook content survived byte-for-byte and do a final review of the merged file.
+
+The logbook is byte-for-byte identical. Everything else in the diff is pure addition (262 insertions, 0 deletions/changes), confirmed by `git diff --stat`.
+
+Confirmed — that's just the diff header, not a removed line. The update is purely additive: 262 new lines, zero deletions, and the Logbook section is byte-for-byte unchanged.
+
+I rewrote [README.md](README.md) with a full project README ahead of your untouched Logbook: overview, current status (backend done, frontend not started), local database setup, quick start, an architecture diagram with the data-flow view stack, a table of 18 architectural decisions (PLAN.md's 13 pre-implementation calls plus 5 made during implementation, e.g. the count-tile polarity call and the rate-tile bug fixes), the status ladder, API reference, test coverage breakdown (62 tests), project structure, and a "Further reading" index pointing to the audit report, requirements docs, and PLAN.md.
+
+---
+
+<!-- qa:f73af017-3292-42ff-8081-1a6a53cf3421 -->
+## 2026-08-21 05:43:41 CST
+
+**Q:**
+
+execute Stage 3
+of PLAN.md — the §1–§5 backend test suites — following "§ Test plan → stage mapping"
+and the Stage 3 file list. Same ground rules: PLAN.md's open questions are settled
+decisions, RequirementsFinal.md is the spec, schema.sql and seed.sql are read-only,
+don't touch the README's logbook section.
+Before writing any test, settle these — they決 determine what the tests assert, so
+getting them wrong bakes in the wrong behaviour. Ask me where marked:
+1. ASK ME: window ∈ {1,2,3} is unconditionally InsufficientData because
+   WeeksContributing < min_history_weeks (4). §2 says window=1 "uses the previous
+   week's value as the baseline and returns no band" — a state no tile can reach.
+   Either min_history_weeks clamps to the effective window, or window=1 is
+   intentionally always grey and §2's test asserts that. (Carried over from Stage 1;
+   still unanswered.)
+2. ASK ME: maxWindowForWeek returns 25 at the last complete week, but PLAN.md's
+   Verified facts table says 24. The implementation counts every spine week before the
+   viewed one, including the 1-of-7 first week. Decide which is authoritative and fix
+   the other — §5's test asserts this number.
+3. Fix, then test: the series point for the week containing the D1 exclusion
+   (account 6, 2026-06-01) has exclusionReason: null, because that week sits exactly at
+   the completeness floor and ApplyDisclosures only upgrades points already marked
+   PartialWeek. Add a distinct signal (e.g. an overlapsExclusion flag) so the sparkline
+   can hatch it, and assert it in §3.
+4. Fix: account_dashboard_settings in 04_seed_catalogs.sql uses ON CONFLICT DO UPDATE,
+   which resets a customer's tuned thresholds on any re-run. Change to DO NOTHING;
+   leave the catalog upserts as they are.
+5. Fix: the completeness CTE in 09_weekly_activity_facts.sql matches exclusions on
+   account and location but not event_type, unlike activity_events_clean. Add
+   AND x.event_type IS NULL so an event-type-scoped exclusion fails loudly instead of
+   over-subtracting days from every event type.
+Then write the suites. Rules that come out of the Stage 1 and 2 reviews:
+- Write §1 and §2 from the spec tables, NOT from the current implementation. Five
+  ladder bugs were found by reading the tables against the code; a test derived from
+  the code would have rubber-stamped all five.
+- Assert reasonCode, not just status, on every row where two InsufficientData
+  conditions can coincide.
+- §5's "window out of range → 400" means window < 1. A window longer than the history
+  clamps by design (RequirementsFinal.md:270 — "week 3 with window=8 clamps to 2 and
+  says so"), so assert that example directly, including Window.Effective — the existing
+  clamp test can't check it because its stub read model has no tiles.
+- Assert iso_weeks is gapless across [firstWeek, latestWeekWithData] including both
+  boundary weeks.
+- FactViewPushdownTests asserts plan shape only, never wall-clock timing.
+- StubDashboardReader/StubAccountMetadataReader currently live in
+  src/Relay.Application/Testing because Relay.Api's stub-reader flag needs them. PLAN.md
+  lists them under tests/Relay.Tests.Unit/Fakes. Pick one and say why — don't leave two
+  copies.
+Checkpoint, with real output pasted:
+  dotnet test                    # unit + integration, Testcontainers
+  TZ=Asia/Tokyo dotnet test      # §4 — byte-identical snapshots
+The integration fixture must boot its own postgres:16 container and load schema.sql +
+seed.sql once per run. Never point it at relay_takehome_postgres — §3 asserts 805 / 12 /
+398, which only hold against a pristine seed.
+Report before starting Stage 4.
+
+**A:**
+
+Good — Stage 0-2 are done. Let me look at the current implementation of the key files before deciding on the two ASK ME items.
+
+I've read PLAN.md and the current (uncommitted) state of `StatusEvaluator.cs` and `EfAccountMetadataReader.cs`. Both open questions are real design decisions, not implementation bugs I can resolve unilaterally — let me ask you both before writing any tests.
+
+Now let's look at existing test files, stub readers, and the SQL files needing fixes.
+
+Good — dotnet and Docker are both available, and `relay_takehome_postgres` is running (must not be touched by tests). Let's confirm the build is currently green before making changes.
+
+Build's clean. Now let's apply the four code/SQL fixes before writing tests.
+
+**Fix #2** — maxWindowForWeek should exclude the always-partial leading spine week (24, not 25):
+
+**Fix #4** — `account_dashboard_settings` upsert must not clobber tuned thresholds on re-run:
+
+**Fix #3** — add a distinct `OverlapsExclusion` signal to `SeriesPoint`, independent of `ExclusionReason`, so the D1 boundary week (which sits exactly at the completeness floor) is still flagged:
+
+Now propagate `OverlapsExclusion` through the API DTO:
+
+Let's verify the build is still clean after these fixes before moving to tests.
+
+Now let's write the §1 and §2 unit test suites, plus WeekRangeTests and the DashboardQueryService clamp addition.
+
+Now `WeekRangeTests.cs`:
+
+Now let's add the missing §2 clamp-with-tiles test to the existing `DashboardQueryServiceTests.cs`:
+
+Now let's build and run the unit test suite to catch any issues before moving to integration tests.
+
+Let me verify the exact DST/timezone conversion semantics directly against Postgres rather than hand-computing, since the sign of the shift matters for the test.
+
+Let's compute the exact ground-truth numbers for the §3 "effect on a tile" assertion against the pristine seed, using the already-running dev container.
+
+Let's validate the fixture actually works before writing the rest of the integration suite — this is the highest-risk piece.
+
+Let's switch to `WithBindMount`, which maps directly to a single-file bind mount like `docker-compose.yml` uses:
+
+Cleaned up — only the dev container remains, confirming Testcontainers auto-removes properly. Now let's write `TimezoneBoundaryTests.cs`.
+
+Let's check account 16 and 20's actual profile against the dev container to calibrate the §5 assertions precisely.
+
+Let's add the missing `System.Net.Http.Json` using and fix the `.Count` ambiguity, then rebuild.
+
+My theory was right. Now let's create the `PayloadSnapshots` directory and generate the baseline snapshot before running the snapshot test.
+
+Looks good. Now let's revert the write-if-missing hack to a strict comparison and re-run to confirm true byte-identical determinism across runs (a fresh container each time).
+
+Good, that was already removed earlier when I switched to `WithBindMount`. Now let's run the full integration suite together to check for any collection-level ordering/shared-state issues, and run the full unit suite too.
+
+Now let's run `dotnet test` (the full checkpoint) and, separately, `TZ=Asia/Tokyo dotnet test` for the byte-identical snapshot check.
+
+The `ANALYZE` fix resolved it — confirming this was a fresh-database statistics gap, not a real pushdown regression. Now let's run the full checkpoint end-to-end.
+
+`dotnet test` is fully green: 42 unit + 20 integration. Now the `TZ=Asia/Tokyo` byte-identical checkpoint:
+
+Now let's rebuild and run the full suite again to confirm this fix doesn't regress anything else (TimezoneBoundaryTests also uses `CreateDbContext()`).
+
+All green: 42 unit + 21 integration = 63 tests. Now the `TZ=Asia/Tokyo` re-check with the updated fixture:
+
+##### Stage 3 report
+
+###### Decisions (both resolved via your answers)
+
+1. **Window ∈ {1,2,3} is intentionally always grey.** No code change to `StatusEvaluator`. `BaselineServiceTests.Window1_BaselineIsThePreviousWeeksValue_AndReturnsNoBand` proves `BaselineService` still computes a correct mean/no-band at window=1, and that `StatusEvaluator` still reports `InsufficientData`/`InsufficientHistory` on top of it — codifying the decision as a regression test, not just a comment.
+2. **`maxWindowForWeek` = 24, not 25.** Fixed in [EfAccountMetadataReader.cs](src/Relay.Infrastructure/Reading/EfAccountMetadataReader.cs:56): subtracts the always-partial leading spine week from the raw calendar-week count. Verified end-to-end in `ApiContractTests.Meta_LastCompleteWeek_ReportsMaxWindowForWeek24_NotTheLeadingPartialWeek`.
+
+###### Fixes
+
+- **#3 (overlapsExclusion flag):** Added `SeriesPoint.OverlapsExclusion` (and the DTO/controller mapping), set independently of `ExclusionReason` in `DashboardQueryService.ApplyDisclosures`. Asserted in `DataQualityTests` (§3, as you specified) and `ApiContractTests` (§5, proving it survives to JSON).
+- **#4 (`account_dashboard_settings` upsert):** [04_seed_catalogs.sql](src/Relay.Infrastructure/Migrations/Sql/04_seed_catalogs.sql) now uses `ON CONFLICT (account_id) DO NOTHING`; catalog upserts untouched.
+- **#5 (`event_type IS NULL` in the completeness CTE):** already present in [09_weekly_activity_facts.sql](src/Relay.Infrastructure/Migrations/Sql/09_weekly_activity_facts.sql) before I started — verified, no change needed.
+
+###### Stage 1/2 review rules — how each was honored
+
+- §1/§2 written from the spec tables ([StatusEvaluatorTests.cs](tests/Relay.Tests.Unit/StatusEvaluatorTests.cs), [BaselineServiceTests.cs](tests/Relay.Tests.Unit/BaselineServiceTests.cs)), each case named after its table row.
+- Three §1 cases (rows 2, 9, 12) deliberately construct a *second*, coincident `InsufficientData` condition to prove the ladder's rung order, not just its final status.
+- §5 window-clamp: added `DashboardQueryServiceTests.GetAsync_ViewedWeek3OfAccountHistory_Window8ClampsTo2AndReportsEffective` with a stub that actually carries tiles, so `Window.Effective` is observable (the existing clamp tests couldn't check it).
+- `iso_weeks` gaplessness across `[firstWeek, latestWeekWithData]`, both boundaries: `TimezoneBoundaryTests.IsoWeeksSpine_IsGaplessAcrossTheWholeFirstToLatestRange`.
+- `FactViewPushdownTests` asserts plan *shape* only (regex on `EXPLAIN` text), never timing.
+- **Stub reader location:** kept `StubDashboardReader`/`StubAccountMetadataReader` in `src/Relay.Application/Testing` — `Relay.Api`'s `UseStubDashboardReader` flag needs them there, and moving them to `tests/Relay.Tests.Unit/Fakes` would break that reference. PLAN.md's listing is stale; no duplicate was created (found and removed an empty leftover `Fakes/` directory).
+
+###### One thing I found and fixed along the way
+
+`FactViewPushdownTests` initially failed against a fresh Testcontainers database (planner chose a `Seq Scan` the long-lived dev container never does) — a statistics gap, not a real regression: a brand-new container has no `ANALYZE` history. Added an explicit `ANALYZE;` to `SeededDatabaseFixture` after migration, matching what production accumulates via autovacuum. Confirmed against the real dev container that `sql/verify_migration.sql`'s own pushdown check already passes there.
+
+###### Checkpoint (real output)
+
+```
+dotnet test
+Passed! - Failed: 0, Passed: 42, Skipped: 0, Total: 42, Duration: 18 ms - Relay.Tests.Unit.dll
+Passed! - Failed: 0, Passed: 21, Skipped: 0, Total: 21, Duration: 15 s  - Relay.Tests.Integration.dll
+
+TZ=Asia/Tokyo dotnet test
+Passed! - Failed: 0, Passed: 42, Skipped: 0, Total: 42, Duration: 20 ms - Relay.Tests.Unit.dll
+Passed! - Failed: 0, Passed: 21, Skipped: 0, Total: 21, Duration: 14 s  - Relay.Tests.Integration.dll
+```
+
+`PayloadSnapshots/account6_2026-W23.json` came out byte-identical both runs — §4's headline assertion. The integration fixture boots its own `postgres:16` container per run (never `relay_takehome_postgres`) and loads `schema.sql`/`seed.sql` once via bind mounts, same mechanism as `docker-compose.yml`.
+
+###### One thing outside my scope
+
+`README.md` and `AI_LOG.md` are showing as modified on disk but I never touched them — timestamps show edits landing mid-session (`AI_LOG.md` was already dirty in your initial git status; `README.md` started changing partway through mine). Looks like a concurrent session is doing Stage 6 polish work. I left both alone, per the standing rule not to touch the README logbook.
+
+Ready for Stage 4 whenever you say go.
+
+That task already finished and I already acted on it — this looks like a stale queued check-in from earlier in the session. Here's the current state:
+
+**Task `bj18zhkvh`** completed a while back. Its output showed the Testcontainers postgres container crashing on startup with `psql: error: could not read from input file: Is a directory` — `WithResourceMapping` was mounting `schema.sql`/`seed.sql` as directories instead of files. I fixed that (switched to `WithBindMount`, matching `docker-compose.yml`'s exact mechanism), diagnosed a second issue (a fresh container has no planner statistics, so `FactViewPushdownTests` picked a different query plan than the long-lived dev container — fixed with an explicit `ANALYZE` after migration), and a third (EF needed the same `NpgsqlDataSource` + `MapEnum<OutcomePolarity>` setup `Program.cs` uses, not a bare connection string).
+
+**All the remaining Stage 3 integration files are already written and passing** — this was the bulk of what I reported a moment ago:
+
+- [SeededDatabaseFixture.cs](tests/Relay.Tests.Integration/SeededDatabaseFixture.cs)
+- [DataQualityTests.cs](tests/Relay.Tests.Integration/DataQualityTests.cs) (§3)
+- [TimezoneBoundaryTests.cs](tests/Relay.Tests.Integration/TimezoneBoundaryTests.cs) (§4 DB half)
+- [ApiContractTests.cs](tests/Relay.Tests.Integration/ApiContractTests.cs) (§5)
+- [FactViewPushdownTests.cs](tests/Relay.Tests.Integration/FactViewPushdownTests.cs)
+- [PayloadSnapshots/account6_2026-W23.json](tests/Relay.Tests.Integration/PayloadSnapshots/account6_2026-W23.json)
+
+Both checkpoints are green: `dotnet test` and `TZ=Asia/Tokyo dotnet test` each pass 42 unit + 21 integration tests, snapshot byte-identical across both runs.
+
+Nothing further to do here — see my report above for the full breakdown (decisions, fixes, and what each test covers). Let me know if you want me to start Stage 4, or if you'd like me to look at anything in Stage 3 again first.
+
+---
+
+<!-- qa:bbb3071c-6acc-4c11-bfb0-caa0525f7808 -->
+## 2026-08-21 06:11:08 CST
+
+**Q:**
+
+continue with step 5
+
+**A:**
+
+Now the sparkline spec.
+
+Now the event-section spec (section ordering — no hardcoded event-type strings client-side).
+
+All 23 frontend tests pass. Now let's verify the full checkpoint: build stays clean, and `dotnet test` is still green.
+
+Still loading — let's wait for it and confirm it renders correctly.
+
+Still rendering correctly after the changes. No console errors, no regressions.
+
+##### Stage 5 done — checkpoint all green
+
+Wrote the §6 suite as four spec files:
+
+- **[dashboard-store.spec.ts](web/src/app/dashboard/dashboard-store.spec.ts)** (7 tests) — URL round-trip (§6 #1), the "explicit empty `locations`" no-op path, and the cancellation test (§6 #4): fires a request at `tolerance=40`, holds it unflushed, triggers `tolerance=85`, and asserts `first.cancelled === true` before flushing the second and checking `store.response()` reflects only the winner. Also covers `/meta`'s account+week keying and the `maxWindowForWeek` floor.
+- **[status-badge.spec.ts](web/src/app/dashboard/tile/status-badge.spec.ts)** (7 tests) — every status's accessible name via `[role="status"]` + `aria-label`, never a CSS class; icon direction for Breach.
+- **[sparkline.spec.ts](web/src/app/dashboard/sparkline/sparkline.spec.ts)** (6 tests) — the "4 of 7 days · excluded from baseline" tooltip, the dashed-point marker for a dropped week, D1 exclusion hatching, no band at `window=1`, and the 100%-clamp-on-display-only check (asserting the raw input signal is untouched).
+- **[event-section.spec.ts](web/src/app/dashboard/section/event-section.spec.ts)** (2 tests) — section title comes from `displayName` not the raw code, and tile order matches the payload's array order exactly (no client-side resort).
+
+One correction flagged per your brief: PLAN.md's Stage 5 says Karma + Jasmine, but `web/` is scaffolded with **vitest + jsdom** (`package.json`, `ng test` → `@angular/build:unit-test`). I used the runner that's actually configured rather than installing Karma to match the stale line — `HttpTestingController` from `@angular/common/http/testing` is runner-agnostic either way, so the §6 assertions work unchanged.
+
+Also worth noting: this app runs **zoneless** (no `zone.js` in `package.json`, no polyfill entry) — so the store tests use real `setTimeout` waits past the 250ms debounce rather than `fakeAsync`/`tick()`, which depend on zone.js patching timers.
+
+Checkpoint:
+- `npm test` → **23/23 passed**
+- `npm run build` → clean, 747 kB / 166 kB gzip, no budget warning
+- `dotnet test` → **63/63 passed** (42 unit + 21 integration), unaffected by the frontend work
+
+That closes out Stages 4 and 5. Stage 6 (polish/hand-off: response caching headers, README run instructions, `docs/decisions.md`, re-syncing `PLAN.md`) is next whenever you want it.
+
+---
+

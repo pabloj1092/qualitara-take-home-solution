@@ -32,3 +32,7 @@ In a real world scenario we may have separate dbs per client or any other SaaS m
 Some decisions I took like EF Core, ant design, Postgres DB, they work nice and fit perfect for this purpose. I choose to use an ORM because is more maintainable, easy to use an scalable than using plain SQL. Same with Postgres, its free, works nice with IANA time zones
 
 I told claude to review my requirements draft and give me recommendations. Took some of them and modify others. ALso the schema defined from claude looks ok.
+
+With a final requirement I created a plan.md
+
+Before implementing the plan I downloaded some skills to make sure to follow best practices for C#, Angular and Postgres

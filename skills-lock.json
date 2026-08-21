@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "angular-best-practices": {
+      "source": "alfredoperez/angular-best-practices",
+      "sourceType": "github",
+      "skillPath": "skills/angular-best-practices/SKILL.md",
+      "computedHash": "8a0f0f438f5fc7ec25cae5b336f587156089e03f1cb9de436bc323e9f11e1416"
+    },
+    "clean-architecture": {
+      "source": "wondelai/skills",
+      "sourceType": "github",
+      "skillPath": "clean-architecture/SKILL.md",
+      "computedHash": "91e3c122b6951e485b4eca773472708fc08b9bbb68247aa9c75c975df380630c"
+    },
+    "csharp-developer": {
+      "source": "jeffallan/claude-skills",
+      "sourceType": "github",
+      "skillPath": "skills/csharp-developer/SKILL.md",
+      "computedHash": "90bd8e86b9c139379d225f4692b4e9deb588db680055439dc3b463833ef6adfb"
+    },
+    "ef-core": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/ef-core/SKILL.md",
+      "computedHash": "23f0a7c7e8c050337d67303f0af339da1ab8f0aa6a334f13112c3f85250c329c"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "e14e276241805c97dbcfe40dcbea1a3035269cc7293cac4b1832dda41a835e60"
+    }
+  }
+}

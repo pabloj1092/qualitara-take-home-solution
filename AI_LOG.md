@@ -1077,3 +1077,20 @@ Cost recorded in the plan: two interfaces plus a handful of records, and one ext
 
 ---
 
+<!-- qa:c980a10b-4c2b-4f95-8f16-52261e0a7d60 -->
+## 2026-08-20 23:13:01 CST
+
+**Q:**
+
+commit and push the everything here
+
+**A:**
+
+I'll check what's actually there before committing.
+
+The commits are made, but the push is blocked: this repo belongs to **pabloj1092**, while both your active `gh` account and your SSH key authenticate as **pcuberfuse**, which has no write access.
+
+You're logged into `gh` as both accounts, so the fix is to make `pabloj1092` the active one — but that's a change to your account config, so I want your call.
+
+---
+

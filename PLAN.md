@@ -249,6 +249,17 @@ decision: a later change to the view definition that breaks pushdown fails a tes
 slower. It asserts the plan shape, never a wall-clock number — timing assertions on a laptop are flaky by
 construction.
 
+Two obligations surfaced during Stage 1 review, added here so Stage 3 doesn't have to rediscover them:
+- `StatusEvaluatorTests` must assert on `reasonCode`, not just `status`, for any row where two `InsufficientData`
+  conditions can coincide (a thin rate denominator dragging `WeeksContributing` to 0 alongside it) — the ladder's
+  rung order determines which reason the user sees, and a status-only assertion cannot catch one reason silently
+  shadowing another.
+- An integration test must assert `iso_weeks` is gapless across `[firstWeek, latestWeekWithData]`, including both
+  boundary weeks. `EfDashboardReader` reads its week list from `iso_weeks` and trusts it to end at the viewed
+  week (`DashboardQueryService` validates the week against that same range first) — the guard in
+  `EfDashboardReader` turns a gap into a diagnosed `InvalidOperationException` rather than an unexplained 500,
+  but the gaplessness itself is Stage 2's `07_iso_weeks.sql` to get right and Stage 3's to prove.
+
 The fixture boots `postgres:16`, runs `schema.sql` + `seed.sql`, applies EF migrations, and is shared across
 the collection — `seed.sql` is 2.4 MB, load it once per run, never per test. **Never point at the developer's
 live container**: §3 asserts 805 / 12 / 398, figures that only hold against a pristine seed.

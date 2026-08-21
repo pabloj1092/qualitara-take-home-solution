@@ -23,13 +23,25 @@ public sealed class StatusEvaluator
     {
         // Rung 1 · InsufficientData — never a colour, never red, outranks every other rule.
         //
-        // Order matters. A null mean means zero contributing weeks — that is a history problem,
-        // not a "too small" problem, so it is folded into the history check rather than reported
-        // as BaselineBelowMinEvents. Mean == 0 is checked before the minimum-events comparison so
-        // it is reachable at all (0 < 5 would otherwise always win first) and it guards the
-        // division below regardless of tile kind. MinBaselineEvents itself is an event-count
-        // threshold and only means something for count tiles — rate tiles gate on the
-        // denominator, not the mean (Requirements §"Defining min_baseline_events").
+        // Order matters, and it is checked in decreasing specificity. A thin rate denominator on
+        // the *viewed* week is checked first: it is the more direct, more actionable explanation,
+        // and low volume tends to drag down the baseline candidate weeks right alongside it — so
+        // whichever check runs first is the reason the user actually sees whenever both are true
+        // at once, which is the common case for a quiet outcome, not the rare one. Reporting
+        // "not enough history" for an account with six months of data because this week's n=11 is
+        // the wrong story. A null mean means zero contributing weeks — a history problem, not a
+        // "too small" problem, so it is folded into the history check rather than reported as
+        // BaselineBelowMinEvents. Mean == 0 is checked before the minimum-events comparison so it
+        // is reachable at all (0 < 5 would otherwise always win first) and it guards the division
+        // below regardless of tile kind. MinBaselineEvents itself is an event-count threshold and
+        // only means something for count tiles — rate tiles gate on the denominator, not the mean
+        // (Requirements §"Defining min_baseline_events").
+        if (kind == TileKind.Rate
+            && (viewedDenominator is null || viewedDenominator < thresholds.MinRateDenominator))
+        {
+            return new StatusResult(TileStatus.InsufficientData, ReasonCode.DenominatorBelowMin, null, null);
+        }
+
         if (baseline.Mean is null || baseline.WeeksContributing < thresholds.MinHistoryWeeks)
         {
             return new StatusResult(TileStatus.InsufficientData, ReasonCode.InsufficientHistory, null, null);
@@ -43,12 +55,6 @@ public sealed class StatusEvaluator
         if (kind == TileKind.Count && baseline.Mean < thresholds.MinBaselineEvents)
         {
             return new StatusResult(TileStatus.InsufficientData, ReasonCode.BaselineBelowMinEvents, null, null);
-        }
-
-        if (kind == TileKind.Rate
-            && (viewedDenominator is null || viewedDenominator < thresholds.MinRateDenominator))
-        {
-            return new StatusResult(TileStatus.InsufficientData, ReasonCode.DenominatorBelowMin, null, null);
         }
 
         // Rung 2 · PartialWeek — count tiles only; rate tiles survive an incomplete week because

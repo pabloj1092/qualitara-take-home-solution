@@ -86,6 +86,45 @@ public class PureCoreSmokeTests
     }
 
     [Fact]
+    public void StatusEvaluator_ThinRateDenominator_WinsOverInsufficientHistory()
+    {
+        // The common case for a quiet outcome: low volume drags the baseline candidates below
+        // min_rate_denominator too, so BaselineService.Classify drops all of them and
+        // WeeksContributing hits 0 — but the *actual* cause is this week's thin denominator, not
+        // a lack of history, and DenominatorBelowMin must be the reason the user sees.
+        var baseline = new BaselineResult(null, null, null, 8, 8, 0, []);
+
+        var result = new StatusEvaluator().Evaluate(
+            36.36m, 11, 7, 7, baseline, OutcomePolarity.Good, TileKind.Rate, Thresholds);
+
+        Assert.Equal(TileStatus.InsufficientData, result.Status);
+        Assert.Equal(ReasonCode.DenominatorBelowMin, result.Reason);
+        Assert.NotEqual(ReasonCode.InsufficientHistory, result.Reason);
+    }
+
+    [Fact]
+    public void EndToEnd_ThinRateVolumeAcrossSixMonthsOfHistory_ReportsDenominatorNotHistory()
+    {
+        // Mirrors the reported bug exactly: six months (26 weeks) of real history, but every
+        // week's denominator is thin (n=5..14), including the viewed week (n=11). The account has
+        // plenty of history — the correct reason is the denominator, not InsufficientHistory.
+        var viewedWeek = WeekRange.FromIsoWeek("2026-W30");
+        var spine = viewedWeek.Preceding(26)
+            .Select((w, i) => new WeekObservation(w.Start, 36.36m, 10 + i % 5, 7, 7))
+            .Append(new WeekObservation(viewedWeek.Start, 36.36m, 11, 7, 7))
+            .ToList();
+
+        var baseline = new BaselineService().Build(spine, viewedWeek, 8, TileKind.Rate, Thresholds);
+        Assert.Equal(0, baseline.WeeksContributing);
+
+        var result = new StatusEvaluator().Evaluate(
+            36.36m, 11, 7, 7, baseline, OutcomePolarity.Good, TileKind.Rate, Thresholds);
+
+        Assert.Equal(TileStatus.InsufficientData, result.Status);
+        Assert.Equal(ReasonCode.DenominatorBelowMin, result.Reason);
+    }
+
+    [Fact]
     public void StatusEvaluator_ZeroBaselineMean_IsBaselineZeroNotBelowMinEvents()
     {
         var baseline = new BaselineResult(0m, 0m, 0m, 8, 8, 8, []);

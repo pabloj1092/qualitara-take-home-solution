@@ -1385,3 +1385,26 @@ Account switch to `pabloj1092` was needed again for the push, and it's been swit
 
 ---
 
+<!-- qa:cc5d482b-9571-495b-a77f-4dc2ce7bb7a2 -->
+## 2026-08-21 00:12:33 CST
+
+**Q:**
+
+Checkpoint 4 still returns a 500 (42P01: relation "locations" does not exist) — not claimed fixed in the commit, just noting it's still outstanding.
+Count-tile polarity = Good is a reasonable call, but it's documented only in a code comment in the infrastructure layer. It belongs in the decisions section of the README, next to the 13 open questions it wasn't one of.
+
+**A:**
+
+Two things to address: acknowledging checkpoint 4 is genuinely still outstanding (expected — it resolves at Stage 2's migration, not before), and adding a decisions section to the README for the count-tile polarity call. I'll append a new section after the existing logbook without touching any of its text.
+
+Confirmed — pure append, no existing logbook text touched. Let me commit this.
+
+Confirming both points:
+
+- **Checkpoint 4** — correct, still outstanding, not fixed, and shouldn't have read as fixed. `relation "locations" does not exist` is expected until Stage 2's migration creates the schema; nothing in the fix commit touched it. It'll resolve as a natural consequence of Stage 2, not something to patch now.
+- **Count-tile polarity** — moved into a new "Implementation decisions" section in [README.md](README.md), numbered `14` to continue PLAN.md's 13 open questions, same `→ Decided` format. Committed as [5f197e4](README.md).
+
+Ready to continue to Stage 2 (the migration) whenever you give the go-ahead.
+
+---
+

@@ -50,6 +50,19 @@ public sealed class EfDashboardReader(RelayDbContext db) : IDashboardReader
             .ToListAsync(ct);
         weekStarts.Reverse();
 
+        // DashboardQueryService already validated the viewed week against
+        // [firstWeek, latestWeekWithData] — both themselves read from iso_weeks — so this holds
+        // as long as the spine is gapless across that whole range. If it ever isn't, fail with a
+        // diagnosis naming the account and week rather than letting BaselineService's generic
+        // "spine must end at the viewed week" surface as an unexplained 500.
+        if (weekStarts.Count == 0 || weekStarts[^1] != query.ViewedWeek.Start)
+        {
+            throw new InvalidOperationException(
+                $"iso_weeks has no row for {query.ViewedWeek.Start:yyyy-MM-dd} " +
+                $"(account {query.AccountId}) even though it fell within the account's validated " +
+                "data range — the spine has a gap.");
+        }
+
         // Day-completeness is a (location, week) fact, repeated redundantly across every
         // event_type/outcome row it touches — dedupe per location first (Max is a "pick one",
         // every row for a location-week carries the same value), then pool across locations by
